@@ -291,35 +291,37 @@
               <button @click="refreshInventory" class="refresh-btn" title="Refresh Inventory">↻</button>
             </div>
             <div class="inventory-list">
+              <div v-if="!player.character.inventory || player.character.inventory.length === 0" class="empty-inventory">
+                <div class="empty-message">Your inventory is empty</div>
+                <button @click="refreshInventory" class="refresh-btn">Refresh</button>
+              </div>
               <div 
                 v-for="item in player.character.inventory" 
                 :key="item.itemId"
                 class="inventory-item"
-                :class="{ 
-                  'item-common': item.rarity === 'common',
-                  'item-uncommon': item.rarity === 'uncommon',
-                  'item-rare': item.rarity === 'rare',
-                  'item-epic': item.rarity === 'epic', 
-                  'item-legendary': item.rarity === 'legendary'
-                }"
+                :class="getItemRarityClass(item)"
                 @click="useItem(item)"
                 @mouseenter="hoveredItem = item.itemId"
                 @mouseleave="hoveredItem = null"
               >
-                <div class="item-name">{{ item.name }} ({{ item.quantity }})</div>
-                <div class="item-type">{{ item.type || 'misc' }}</div>
+                <div class="item-name">{{ getItemName(item) }} ({{ item.quantity }})</div>
+                <div class="item-type">{{ getItemType(item) }}</div>
                 <div v-if="hoveredItem === item.itemId" class="item-tooltip">
-                  <div class="tooltip-header">{{ item.name }}</div>
-                  <div class="tooltip-type">{{ capitalizeFirst(item.type || 'misc') }}</div>
-                  <div v-if="item.description" class="tooltip-description">{{ item.description }}</div>
-                  <div v-if="item.attributes" class="tooltip-attributes">
-                    <div v-if="item.attributes.damage">Damage: {{ item.attributes.damage.min }}-{{ item.attributes.damage.max }}</div>
-                    <div v-if="item.attributes.defense">Defense: {{ item.attributes.defense }}</div>
-                    <div v-for="(value, key) in item.attributes" :key="key" v-if="key !== 'damage' && key !== 'defense' && value !== 0">
-                      {{ formatAttributeName(key) }}: +{{ value }}
-                    </div>
+                  <div class="tooltip-header">{{ getItemName(item) }}</div>
+                  <div class="tooltip-type">{{ capitalizeFirst(getItemType(item)) }}</div>
+                  <div class="tooltip-description">{{ getItemDescription(item) }}</div>
+                  
+                  <div v-if="hasItemAttributes(item)" class="tooltip-attributes">
+                    <div v-if="getItemDamage(item)">Damage: {{ getItemDamage(item) }}</div>
+                    <div v-if="getItemDefense(item)">Defense: {{ getItemDefense(item) }}</div>
+                    <!-- Other attributes would be shown here -->
                   </div>
-                  <div v-if="item.requiredLevel > 1" class="tooltip-required">Requires Level: {{ item.requiredLevel }}</div>
+                  
+                  <div v-if="getRequiredLevel(item) > 1" class="tooltip-required">
+                    Requires Level: {{ getRequiredLevel(item) }}
+                  </div>
+                  
+                  <div class="tooltip-value">Value: {{ getItemValue(item) }} gold</div>
                   <div class="tooltip-instructions">Click to use or equip</div>
                 </div>
               </div>
@@ -1123,9 +1125,115 @@ export default {
       return str.charAt(0).toUpperCase() + str.slice(1);
     };
     
+    // Item display helper methods
+    const getItemName = (item) => {
+      // Check if the item has a direct name property
+      if (item.name) return item.name;
+      
+      // Convert itemId to a nice display name if no name provided
+      if (item.itemId) {
+        const idName = item.itemId.toString().replace(/-/g, ' ');
+        return capitalizeFirst(idName);
+      }
+      
+      return 'Unknown Item';
+    };
+    
+    const getItemType = (item) => {
+      // Return type if available
+      if (item.type) return item.type;
+      
+      // Try to guess type from itemId
+      if (item.itemId) {
+        if (item.itemId.includes('sword') || 
+            item.itemId.includes('axe') || 
+            item.itemId.includes('dagger') ||
+            item.itemId.includes('staff')) {
+          return 'weapon';
+        }
+        
+        if (item.itemId.includes('armor') || 
+            item.itemId.includes('helm') || 
+            item.itemId.includes('boots') ||
+            item.itemId.includes('shield')) {
+          return 'armor';
+        }
+        
+        if (item.itemId.includes('potion') || 
+            item.itemId.includes('food') || 
+            item.itemId.includes('herb')) {
+          return 'consumable';
+        }
+      }
+      
+      return 'miscellaneous';
+    };
+    
+    const getItemDescription = (item) => {
+      if (item.description) return item.description;
+      return `A ${getItemType(item)} that you obtained during your adventures.`;
+    };
+    
+    const getItemRarityClass = (item) => {
+      // If item has rarity property, use it
+      if (item.rarity) {
+        return {
+          'item-common': item.rarity === 'common',
+          'item-uncommon': item.rarity === 'uncommon',
+          'item-rare': item.rarity === 'rare',
+          'item-epic': item.rarity === 'epic',
+          'item-legendary': item.rarity === 'legendary'
+        };
+      }
+      
+      // Default to common
+      return { 'item-common': true };
+    };
+    
+    const hasItemAttributes = (item) => {
+      return item.attributes || 
+             getItemType(item) === 'weapon' || 
+             getItemType(item) === 'armor';
+    };
+    
+    const getItemDamage = (item) => {
+      if (item.attributes && item.attributes.damage) {
+        return `${item.attributes.damage.min}-${item.attributes.damage.max}`;
+      }
+      
+      // Default values based on item type
+      if (getItemType(item) === 'weapon') {
+        return '1-3';
+      }
+      
+      return null;
+    };
+    
+    const getItemDefense = (item) => {
+      if (item.attributes && item.attributes.defense) {
+        return item.attributes.defense;
+      }
+      
+      // Default values based on item type
+      if (getItemType(item) === 'armor') {
+        return 2;
+      }
+      
+      return null;
+    };
+    
+    const getRequiredLevel = (item) => {
+      return item.requiredLevel || 1;
+    };
+    
+    const getItemValue = (item) => {
+      return item.value || 1;
+    };
+    
     // Use an item from inventory
     const useItem = (item) => {
-      addGameMessage(`Using item: ${item.name}`, 'info');
+      const itemName = getItemName(item);
+      addGameMessage(`Using item: ${itemName}`, 'info');
       socket.value.emit('player:action', {
         type: 'useItem',
         itemId: item.itemId
@@ -1134,12 +1242,21 @@ export default {
     
     // Refresh inventory data from server
     const refreshInventory = () => {
-      if (!socket.value) return;
+      if (!socket.value) {
+        addGameMessage("Can't refresh inventory - not connected to server", 'error');
+        return;
+      }
       
       addGameMessage("Refreshing inventory...", 'system');
+      console.log("Requesting inventory update from server");
+      
+      // Request inventory from server
       socket.value.emit('player:action', {
         type: 'getInventory'
       });
+      
+      // Add a debug log to check what's in inventory currently
+      console.log("Current inventory:", props.player.character.inventory);
     };
     
     // Refresh player stats from server
@@ -1323,6 +1440,16 @@ export default {
       hoveredItem,
       formatAttributeName,
       capitalizeFirst,
+      // Item display helpers
+      getItemName,
+      getItemType,
+      getItemDescription,
+      getItemRarityClass,
+      hasItemAttributes,
+      getItemDamage,
+      getItemDefense,
+      getRequiredLevel,
+      getItemValue,
       // New Chronicle (chat) system
       chatChannels,
       selectedChatChannel,
@@ -2012,6 +2139,20 @@ export default {
   gap: 4px;
 }
 
+.empty-inventory {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+}
+
+.empty-message {
+  color: #999;
+  font-style: italic;
+}
+
 .inventory-item {
   padding: 6px 8px;
   cursor: pointer;
@@ -2100,6 +2241,12 @@ export default {
 
 .tooltip-required {
   color: #d9534f;
+  font-size: 0.9em;
+  margin-bottom: 6px;
+}
+
+.tooltip-value {
+  color: #ffcc00;
   font-size: 0.9em;
   margin-bottom: 6px;
 }
