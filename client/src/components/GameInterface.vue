@@ -8,33 +8,104 @@
       <div class="game-content">
         <div class="game-panel left-panel">
           <div class="player-info">
-            <h3>{{ player.character.name }}</h3>
-            <div class="player-stats">
-              <p>Level: {{ player.character.level }}</p>
-              <p>HP: {{ player.character.health.current }}/{{ player.character.health.max }}</p>
-              <p>MP: {{ player.character.mana.current }}/{{ player.character.mana.max }}</p>
-              <p>Experience: {{ player.character.experience }}</p>
+            <div class="player-header">
+              <h3>{{ player.character.name }}</h3>
+              <div class="player-class">{{ player.character.class }} ({{ player.character.race }})</div>
             </div>
-            <div class="player-attributes">
-              <div class="attr-row">
-                <span class="attr-label">STR:</span>
-                <span class="attr-value">{{ player.character.attributes.strength }}</span>
-                <span class="attr-label">DEX:</span>
-                <span class="attr-value">{{ player.character.attributes.dexterity }}</span>
+            
+            <div class="progress-section">
+              <div class="progress-row">
+                <span class="progress-label">Level {{ player.character.level }}</span>
+                <div class="progress-bar">
+                  <div class="progress-fill xp-fill" 
+                    :style="{ width: `${(player.character.experience / player.character.experienceToNextLevel) * 100}%` }">
+                  </div>
+                </div>
+                <span class="progress-value">{{ player.character.experience }}/{{ player.character.experienceToNextLevel }}</span>
               </div>
-              <div class="attr-row">
-                <span class="attr-label">INT:</span>
-                <span class="attr-value">{{ player.character.attributes.intelligence }}</span>
-                <span class="attr-label">CON:</span>
-                <span class="attr-value">{{ player.character.attributes.constitution }}</span>
+              
+              <div class="progress-row">
+                <span class="progress-label">HP</span>
+                <div class="progress-bar">
+                  <div class="progress-fill hp-fill" 
+                    :style="{ width: `${(player.character.health.current / player.character.health.max) * 100}%` }">
+                  </div>
+                </div>
+                <span class="progress-value">{{ player.character.health.current }}/{{ player.character.health.max }}</span>
               </div>
-              <div class="attr-row">
-                <span class="attr-label">WIS:</span>
-                <span class="attr-value">{{ player.character.attributes.wisdom || 10 }}</span>
-                <span class="attr-label">VIT:</span>
-                <span class="attr-value">{{ player.character.attributes.vitality || 10 }}</span>
+              
+              <div class="progress-row">
+                <span class="progress-label">MP</span>
+                <div class="progress-bar">
+                  <div class="progress-fill mp-fill" 
+                    :style="{ width: `${(player.character.mana.current / player.character.mana.max) * 100}%` }">
+                  </div>
+                </div>
+                <span class="progress-value">{{ player.character.mana.current }}/{{ player.character.mana.max }}</span>
               </div>
             </div>
+            
+            <div class="stats-container">
+              <div class="stats-section">
+                <div class="stats-header">Attributes</div>
+                <div class="player-attributes">
+                  <div class="attr-row">
+                    <span class="attr-label">STR:</span>
+                    <span class="attr-value">{{ player.character.attributes.strength }}</span>
+                    <span class="attr-label">DEX:</span>
+                    <span class="attr-value">{{ player.character.attributes.dexterity }}</span>
+                  </div>
+                  <div class="attr-row">
+                    <span class="attr-label">INT:</span>
+                    <span class="attr-value">{{ player.character.attributes.intelligence }}</span>
+                    <span class="attr-label">CON:</span>
+                    <span class="attr-value">{{ player.character.attributes.constitution }}</span>
+                  </div>
+                  <div class="attr-row">
+                    <span class="attr-label">WIS:</span>
+                    <span class="attr-value">{{ player.character.attributes.wisdom || 10 }}</span>
+                    <span class="attr-label">VIT:</span>
+                    <span class="attr-value">{{ player.character.attributes.vitality || 10 }}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="stats-section">
+                <div class="stats-header">Combat Stats</div>
+                <div class="combat-stats">
+                  <div class="stat-row">
+                    <span class="stat-label">Damage:</span>
+                    <span class="stat-value">{{ player.character.stats?.damageMin || 1 }}-{{ player.character.stats?.damageMax || 5 }}</span>
+                  </div>
+                  <div class="stat-row">
+                    <span class="stat-label">Crit:</span>
+                    <span class="stat-value">{{ player.character.stats?.criticalChance || 5 }}%</span>
+                  </div>
+                  <div class="stat-row">
+                    <span class="stat-label">Defense:</span>
+                    <span class="stat-value">{{ player.character.stats?.defense || 0 }}</span>
+                  </div>
+                  <div class="stat-row">
+                    <span class="stat-label">Evasion:</span>
+                    <span class="stat-value">{{ player.character.stats?.evasion || 5 }}%</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="stats-section">
+                <div class="stats-header">Resistances</div>
+                <div class="resistances">
+                  <div class="resist-row" v-for="(value, type) in player.character.resistances" :key="type">
+                    <span class="resist-label">{{ capitalizeFirst(type) }}:</span>
+                    <span class="resist-value">{{ value }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <button @click="refreshPlayerStats" class="refresh-stats-btn">
+              Refresh Stats
+            </button>
           </div>
         </div>
         
@@ -186,14 +257,42 @@
           
           <div class="inventory-panel">
             <h3>Inventory</h3>
+            <div class="inventory-header">
+              <span>Gold: {{ player.character.gold?.carried || 0 }}</span>
+              <button @click="refreshInventory" class="refresh-btn" title="Refresh Inventory">↻</button>
+            </div>
             <div class="inventory-list">
               <div 
                 v-for="item in player.character.inventory" 
                 :key="item.itemId"
                 class="inventory-item"
+                :class="{ 
+                  'item-common': item.rarity === 'common',
+                  'item-uncommon': item.rarity === 'uncommon',
+                  'item-rare': item.rarity === 'rare',
+                  'item-epic': item.rarity === 'epic', 
+                  'item-legendary': item.rarity === 'legendary'
+                }"
                 @click="useItem(item)"
+                @mouseenter="hoveredItem = item.itemId"
+                @mouseleave="hoveredItem = null"
               >
-                {{ item.name }} ({{ item.quantity }})
+                <div class="item-name">{{ item.name }} ({{ item.quantity }})</div>
+                <div class="item-type">{{ item.type || 'misc' }}</div>
+                <div v-if="hoveredItem === item.itemId" class="item-tooltip">
+                  <div class="tooltip-header">{{ item.name }}</div>
+                  <div class="tooltip-type">{{ capitalizeFirst(item.type || 'misc') }}</div>
+                  <div v-if="item.description" class="tooltip-description">{{ item.description }}</div>
+                  <div v-if="item.attributes" class="tooltip-attributes">
+                    <div v-if="item.attributes.damage">Damage: {{ item.attributes.damage.min }}-{{ item.attributes.damage.max }}</div>
+                    <div v-if="item.attributes.defense">Defense: {{ item.attributes.defense }}</div>
+                    <div v-for="(value, key) in item.attributes" :key="key" v-if="key !== 'damage' && key !== 'defense' && value !== 0">
+                      {{ formatAttributeName(key) }}: +{{ value }}
+                    </div>
+                  </div>
+                  <div v-if="item.requiredLevel > 1" class="tooltip-required">Requires Level: {{ item.requiredLevel }}</div>
+                  <div class="tooltip-instructions">Click to use or equip</div>
+                </div>
               </div>
             </div>
           </div>
@@ -205,6 +304,7 @@
 
 <script>
 import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue';
+import { useStore } from 'vuex';
 import io from 'socket.io-client';
 
 export default {
@@ -222,6 +322,7 @@ export default {
   },
   
   setup(props) {
+    const store = useStore();
     const socket = ref(null);
     const gameTitle = ref('Fantasy Text MMORPG');
     const gameMessages = ref([]);
@@ -468,8 +569,10 @@ export default {
             
             // Update player health
             if (result.playerHealth !== undefined) {
-              props.player.character.health.current = result.playerHealth;
-              props.player.character.health.max = result.playerMaxHealth || props.player.character.health.max;
+              const updatedPlayer = { ...props.player };
+              updatedPlayer.character.health.current = result.playerHealth;
+              updatedPlayer.character.health.max = result.playerMaxHealth || props.player.character.health.max;
+              store.commit('setPlayer', updatedPlayer);
             }
             
             // Add combat messages
@@ -494,10 +597,89 @@ export default {
                 addCombatMessage(`You gained ${result.experienceGained} experience points.`, 'reward');
               }
               
+              if (result.goldGained) {
+                addCombatMessage(`You received ${result.goldGained} gold.`, 'reward');
+              }
+              
               if (result.loot && result.loot.length > 0) {
                 result.loot.forEach(item => {
                   addCombatMessage(`You received: ${item.name} x${item.quantity}`, 'item');
                 });
+              }
+              
+              // Update player data in store if full update is provided
+              if (result.playerData) {
+                store.commit('setPlayer', result.playerData);
+              }
+              
+              // Handle inventory updates
+              if (result.type === 'getInventory' && result.inventory) {
+                // Update player inventory with detailed item information
+                const updatedPlayer = { ...props.player };
+                updatedPlayer.character.inventory = result.inventory;
+                
+                if (result.equipment) {
+                  updatedPlayer.character.equipment = result.equipment;
+                }
+                
+                if (result.gold) {
+                  updatedPlayer.character.gold = result.gold;
+                }
+                
+                store.commit('setPlayer', updatedPlayer);
+                addGameMessage("Inventory updated", 'success');
+              }
+              
+              // Handle player stats updates
+              if (result.type === 'getPlayerStats' && result.stats) {
+                const updatedPlayer = { ...props.player };
+                
+                // Update basic stats
+                if (result.level) updatedPlayer.character.level = result.level;
+                if (result.experience) updatedPlayer.character.experience = result.experience;
+                if (result.experienceToNextLevel) updatedPlayer.character.experienceToNextLevel = result.experienceToNextLevel;
+                
+                // Update attributes
+                if (result.attributes) {
+                  updatedPlayer.character.attributes = { 
+                    ...updatedPlayer.character.attributes,
+                    ...result.attributes 
+                  };
+                }
+                
+                // Update combat stats
+                if (result.stats) {
+                  updatedPlayer.character.stats = { 
+                    ...updatedPlayer.character.stats,
+                    ...result.stats 
+                  };
+                }
+                
+                // Update health and mana
+                if (result.health) {
+                  updatedPlayer.character.health = { 
+                    ...updatedPlayer.character.health,
+                    ...result.health 
+                  };
+                }
+                
+                if (result.mana) {
+                  updatedPlayer.character.mana = { 
+                    ...updatedPlayer.character.mana,
+                    ...result.mana 
+                  };
+                }
+                
+                // Update resistances
+                if (result.resistances) {
+                  updatedPlayer.character.resistances = { 
+                    ...updatedPlayer.character.resistances,
+                    ...result.resistances 
+                  };
+                }
+                
+                store.commit('setPlayer', updatedPlayer);
+                addGameMessage("Character stats updated", 'success');
               }
               
               // Handle level up
@@ -526,8 +708,9 @@ export default {
               console.warn('Zone is missing connections array');
             }
             
-            // Store the zone information
+            // Store the zone information in both component and Vuex store
             currentZone.value = result.zone;
+            store.commit('setCurrentZone', result.zone);
             
             // Check if there are zone entities
             if (result.zone.entities) {
@@ -538,20 +721,22 @@ export default {
               zoneEntities.value = [];
             }
             
-            // Create some test entities if none exist
-            if (zoneEntities.value.length === 0) {
-              console.log('Creating test monsters');
+            // Create some test entities if none exist and we're in development mode
+            if (zoneEntities.value.length === 0 && process.env.NODE_ENV === 'development') {
+              console.log('Creating test monsters for development');
               zoneEntities.value = [
                 {
                   id: 'test-monster-1',
                   name: 'Test Wolf',
                   type: 'monster',
+                  level: 1,
                   description: 'A fierce wolf with grey fur and sharp fangs.'
                 },
                 {
                   id: 'test-monster-2',
                   name: 'Test Goblin',
                   type: 'monster',
+                  level: 2,
                   description: 'A small green creature with a wicked grin.'
                 }
               ];
@@ -564,6 +749,12 @@ export default {
             addGameMessage(`You are now in ${result.zone.displayName}`, 'info');
             addGameMessage(result.zone.description, 'info');
             
+            // Add game message to store for other components
+            store.commit('addGameMessage', { 
+              text: `Entered zone: ${result.zone.displayName}`, 
+              type: 'info'
+            });
+            
             // List available exits
             if (result.zone.connections && result.zone.connections.length > 0) {
               addGameMessage('Available exits:', 'info');
@@ -572,6 +763,16 @@ export default {
               });
             } else {
               addGameMessage('There are no visible exits from here.', 'warning');
+            }
+          }
+          
+          // If player data is updated (like after combat or item use)
+          if (result.playerData) {
+            store.commit('setPlayer', result.playerData);
+            
+            // Update inventory in store
+            if (result.playerData.character && result.playerData.character.inventory) {
+              store.commit('updateInventory', result.playerData.character.inventory);
             }
           }
         } else {
@@ -601,7 +802,14 @@ export default {
     
     // Add a message to the game output
     const addGameMessage = (text, type = 'info') => {
+      // Add to local messages
       gameMessages.value.push({ text, type });
+      
+      // Add to store messages (except routine messages)
+      if (['system', 'error', 'success', 'warning', 'reward', 'levelup', 'combat-critical'].includes(type)) {
+        store.commit('addGameMessage', { text, type });
+      }
+      
       // Scroll to bottom
       setTimeout(() => {
         const messageDiv = document.querySelector('.game-messages');
@@ -797,12 +1005,48 @@ export default {
       chatInput.value = '';
     };
     
+    // Track hovered item for tooltips
+    const hoveredItem = ref(null);
+    
+    // Format attribute names for display
+    const formatAttributeName = (key) => {
+      return key.replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .replace('Bonus', '');
+    };
+    
+    // Capitalize first letter
+    const capitalizeFirst = (str) => {
+      if (!str) return '';
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    };
+    
     // Use an item from inventory
     const useItem = (item) => {
       addGameMessage(`Using item: ${item.name}`, 'info');
       socket.value.emit('player:action', {
         type: 'useItem',
         itemId: item.itemId
+      });
+    };
+    
+    // Refresh inventory data from server
+    const refreshInventory = () => {
+      if (!socket.value) return;
+      
+      addGameMessage("Refreshing inventory...", 'system');
+      socket.value.emit('player:action', {
+        type: 'getInventory'
+      });
+    };
+    
+    // Refresh player stats from server
+    const refreshPlayerStats = () => {
+      if (!socket.value) return;
+      
+      addGameMessage("Refreshing character stats...", 'system');
+      socket.value.emit('player:action', {
+        type: 'getPlayerStats'
       });
     };
     
@@ -830,20 +1074,31 @@ export default {
         return;
       }
 
+      // Calculate initial monster health based on level if available
+      const monsterLevel = targetMonster.level || 1;
+      const monsterHealthMax = targetMonster.healthMax || (monsterLevel * 20 + 50); // Simple formula
+      
       // Initialize combat state
       inCombat.value = true;
       currentTarget.value = {
         id: monster.id,
         name: monster.name,
+        level: monsterLevel,
         description: monster.description || "A fearsome creature",
-        health: { current: 100, max: 100 } // We'll get real values from server later
+        health: { current: monsterHealthMax, max: monsterHealthMax } 
       };
       combatLog.value = [];
       combatTurn.value = 1;
       
       // Add initial combat message
-      addCombatMessage(`Combat started with ${monster.name}!`, 'system');
+      addCombatMessage(`Combat started with ${monster.name} (Level ${monsterLevel})!`, 'system');
       addCombatMessage(`You prepare to fight the ${monster.name}.`, 'info');
+      
+      // Log to store
+      store.commit('addGameMessage', {
+        text: `Entered combat with ${monster.name} (Level ${monsterLevel})`,
+        type: 'combat-system'
+      });
       
       // Send initial attack to server
       socket.value.emit('player:action', {
@@ -912,6 +1167,12 @@ export default {
       addGameMessage('Welcome to Fantasy Text MMORPG!', 'system');
       addGameMessage('Use the directional buttons to navigate.', 'system');
       addGameMessage('Loading zone information...', 'system');
+      
+      // Check store for current zone
+      if (store.state.currentZone) {
+        currentZone.value = store.state.currentZone;
+        generateGridFromZone();
+      }
     });
     
     // Cleanup
@@ -940,6 +1201,8 @@ export default {
       moveToDirection,
       interactWithEntity,
       useItem,
+      refreshInventory,
+      refreshPlayerStats,
       gridMap,
       getCellSymbol,
       getEntityMarker,
@@ -954,7 +1217,10 @@ export default {
       combatTurn,
       startCombat,
       stopCombat,
-      addCombatMessage
+      addCombatMessage,
+      hoveredItem,
+      formatAttributeName,
+      capitalizeFirst
     };
   }
 };
@@ -1462,21 +1728,143 @@ export default {
   border: 1px solid #444;
   background-color: #333;
   padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.inventory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #ffcc00;
+  font-weight: bold;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #444;
+}
+
+.refresh-btn {
+  background-color: transparent;
+  color: #aaa;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.refresh-btn:hover {
+  background-color: #444;
+  color: #fff;
 }
 
 .inventory-list {
   height: 150px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .inventory-item {
-  padding: 5px;
+  padding: 6px 8px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  background-color: #2a2a2a;
+  border-radius: 3px;
+  border-left: 3px solid #666;
+  position: relative;
+}
+
+.item-name {
+  font-weight: bold;
+}
+
+.item-type {
+  font-size: 0.8em;
+  color: #aaa;
 }
 
 .inventory-item:hover {
-  background-color: #444;
+  background-color: #3a3a3a;
+  transform: translateX(2px);
+}
+
+.item-common {
+  border-left-color: #999;
+}
+
+.item-uncommon {
+  border-left-color: #1eb53a;
+}
+
+.item-rare {
+  border-left-color: #3873e0;
+}
+
+.item-epic {
+  border-left-color: #9b59b6;
+}
+
+.item-legendary {
+  border-left-color: #f39c12;
+}
+
+.item-tooltip {
+  position: absolute;
+  left: calc(100% + 5px);
+  top: 0;
+  width: 200px;
+  background-color: rgba(0, 0, 0, 0.9);
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 8px;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.tooltip-header {
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 4px;
+  font-size: 1.1em;
+}
+
+.tooltip-type {
+  color: #aaa;
+  font-size: 0.9em;
+  font-style: italic;
+  margin-bottom: 6px;
+}
+
+.tooltip-description {
+  color: #ddd;
+  margin-bottom: 6px;
+  font-size: 0.9em;
+  border-top: 1px dotted #555;
+  padding-top: 6px;
+}
+
+.tooltip-attributes {
+  color: #5cb85c;
+  font-size: 0.9em;
+  margin-bottom: 6px;
+}
+
+.tooltip-required {
+  color: #d9534f;
+  font-size: 0.9em;
+  margin-bottom: 6px;
+}
+
+.tooltip-instructions {
+  color: #aaa;
+  font-size: 0.8em;
+  font-style: italic;
+  margin-top: 6px;
+  border-top: 1px dotted #555;
+  padding-top: 6px;
 }
 
 .main-content {
@@ -1515,5 +1903,141 @@ export default {
   width: 20px;
   text-align: center;
   margin-right: 15px;
+}
+
+.player-info {
+  margin-bottom: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.player-header {
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #444;
+}
+
+.player-header h3 {
+  margin-bottom: 4px;
+  color: #ffcc00;
+}
+
+.player-class {
+  font-size: 0.9em;
+  color: #aaa;
+  font-style: italic;
+}
+
+.progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.progress-label {
+  width: 60px;
+  font-size: 0.9em;
+  color: #ddd;
+}
+
+.progress-value {
+  width: 80px;
+  font-size: 0.9em;
+  text-align: right;
+  color: #ddd;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 10px;
+  background-color: #333;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.xp-fill {
+  background-color: #8b5cf6;
+}
+
+.hp-fill {
+  background-color: #ef4444;
+}
+
+.mp-fill {
+  background-color: #3b82f6;
+}
+
+.stats-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-section {
+  background-color: #2d2d2d;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid #444;
+}
+
+.stats-header {
+  background-color: #333;
+  padding: 4px 8px;
+  font-weight: bold;
+  font-size: 0.9em;
+  color: #ffcc00;
+  border-bottom: 1px solid #444;
+}
+
+.combat-stats, .resistances {
+  padding: 8px;
+}
+
+.stat-row, .resist-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 3px 0;
+}
+
+.stat-label, .resist-label {
+  color: #aaa;
+  font-size: 0.9em;
+}
+
+.stat-value, .resist-value {
+  color: #fff;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+
+.refresh-stats-btn {
+  background-color: #333;
+  color: #ddd;
+  border: 1px solid #444;
+  padding: 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all 0.2s;
+  text-align: center;
+  margin-top: 5px;
+}
+
+.refresh-stats-btn:hover {
+  background-color: #444;
+  color: #fff;
 }
 </style> 
