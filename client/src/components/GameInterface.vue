@@ -11,6 +11,9 @@
             <div class="player-header">
               <h3>{{ player.character.name }}</h3>
               <div class="player-class">{{ player.character.class }} ({{ player.character.race }})</div>
+              <div v-if="player.isAdmin || player.role === 'admin'" class="admin-link">
+                <a href="/admin" target="_blank">Admin Console</a>
+              </div>
             </div>
             
             <div class="progress-section">
@@ -3575,6 +3578,25 @@ export default {
 
 .debug-toggle:hover {
   background-color: #777;
+}
+
+.admin-link {
+  margin-top: 5px;
+}
+
+.admin-link a {
+  color: #ff5722;
+  font-size: 0.9em;
+  text-decoration: none;
+  padding: 2px 6px;
+  border: 1px solid #ff5722;
+  border-radius: 3px;
+  background-color: rgba(255, 87, 34, 0.1);
+  transition: all 0.2s;
+}
+
+.admin-link a:hover {
+  background-color: rgba(255, 87, 34, 0.2);
 }
 
 /* Quest System Styles */
