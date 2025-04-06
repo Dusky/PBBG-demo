@@ -131,7 +131,8 @@
                       'cell-wall': cell.type === 'wall',
                       'cell-path': cell.type === 'path',
                       'cell-player': cell.hasPlayer,
-                      'cell-entity': cell.entities && cell.entities.length > 0 
+                      'cell-entity': cell.entities && cell.entities.length > 0,
+                      'cell-building': cell.building
                     }"
                     @click="interactWithCell(rowIndex, colIndex)"
                   >
@@ -170,29 +171,109 @@
               <!-- Zone Description -->
               <div class="zone-description" v-if="currentZone">
                 <p>{{ currentZone.description }}</p>
+                
+                <!-- Display an ambient text message randomly when zone loads -->
+                <p v-if="currentZone.ambientText && currentZone.ambientText.length > 0" class="ambient-text">
+                  {{ currentZone.ambientText[Math.floor(Math.random() * currentZone.ambientText.length)] }}
+                </p>
               </div>
             </div>
             
-            <!-- Combat/Monsters Section -->
-            <div class="monsters-section">
-              <!-- Zone Entities/Monsters List -->
-              <div class="zone-entities" v-if="zoneEntities.length > 0">
-                <h4>Monsters in this area:</h4>
+            <!-- Special Locations Section -->
+            <div class="locations-section" v-if="currentZone && currentZone.specialLocations && currentZone.specialLocations.length > 0">
+              <h4>Notable Locations:</h4>
+              <div class="location-list">
+                <div 
+                  v-for="location in currentZone.specialLocations" 
+                  :key="location.id" 
+                  class="location-item"
+                  :class="'location-' + location.type"
+                  @click="interactWithLocation(location)"
+                >
+                  <span class="location-icon">
+                    {{ getLocationIcon(location.type) }}
+                  </span>
+                  <div class="location-info">
+                    <span class="location-name">{{ location.name }}</span>
+                    <span class="location-type">{{ formatLocationType(location.type) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Zone Entities Section -->
+            <div class="zone-entities-container">
+              <div class="entity-debug-controls" v-if="isDevelopment">
+                <button @click="showDebugInfo = !showDebugInfo" class="debug-toggle">
+                  {{ showDebugInfo ? 'Hide Debug Info' : 'Show Debug Info' }}
+                </button>
+                <button @click="refreshZoneInfo" class="debug-toggle">
+                  Refresh Zone
+                </button>
+              </div>
+              
+              <!-- Monsters Section -->
+              <div class="monsters-section" v-if="getEntitiesByType('monster').length > 0">
+                <h4>Monsters in this area ({{ getEntitiesByType('monster').length }}):</h4>
                 <div class="entity-list">
                   <div 
-                    v-for="entity in zoneEntities" 
+                    v-for="entity in getEntitiesByType('monster')" 
                     :key="entity.id"
-                    class="entity-item"
-                    :class="{ 'monster-entity': entity.type === 'monster' }"
+                    class="entity-item monster-entity"
                   >
-                    <span class="entity-name">{{ entity.name }}</span>
+                    <span class="entity-name">
+                      {{ entity.name || 'Unknown Monster' }} {{ entity.level ? `(Lvl ${entity.level})` : '' }}
+                    </span>
                     <button 
-                      v-if="entity.type === 'monster'" 
                       @click="interactWithEntity(entity)"
                       class="attack-btn"
                       :disabled="inCombat"
                     >
                       Attack
+                    </button>
+                  </div>
+                </div>
+                <div v-if="showDebugInfo" class="debug-info">
+                  <div class="debug-header">Debug Info:</div>
+                  <pre class="debug-content">{{ JSON.stringify(getEntitiesByType('monster'), null, 2) }}</pre>
+                </div>
+              </div>
+              
+              <!-- NPCs Section -->
+              <div class="npcs-section" v-if="getEntitiesByType('npc').length > 0">
+                <h4>NPCs:</h4>
+                <div class="entity-list">
+                  <div 
+                    v-for="entity in getEntitiesByType('npc')" 
+                    :key="entity.id"
+                    class="entity-item npc-entity"
+                  >
+                    <span class="entity-name">{{ entity.name }}</span>
+                    <button 
+                      @click="interactWithEntity(entity)"
+                      class="talk-btn"
+                    >
+                      Talk
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Resources Section -->
+              <div class="resources-section" v-if="getEntitiesByType('resource').length > 0">
+                <h4>Resources:</h4>
+                <div class="entity-list">
+                  <div 
+                    v-for="entity in getEntitiesByType('resource')" 
+                    :key="entity.id"
+                    class="entity-item resource-entity"
+                  >
+                    <span class="entity-name">{{ entity.name }}</span>
+                    <button 
+                      @click="interactWithEntity(entity)"
+                      class="gather-btn"
+                    >
+                      Gather
                     </button>
                   </div>
                 </div>
@@ -284,45 +365,216 @@
             </div>
           </div>
           
-          <div class="inventory-panel">
-            <h3>Inventory</h3>
-            <div class="inventory-header">
-              <span>Gold: {{ player.character.gold?.carried || 0 }}</span>
-              <button @click="refreshInventory" class="refresh-btn" title="Refresh Inventory">↻</button>
-            </div>
-            <div class="inventory-list">
-              <div v-if="!player.character.inventory || player.character.inventory.length === 0" class="empty-inventory">
-                <div class="empty-message">Your inventory is empty</div>
-                <button @click="refreshInventory" class="refresh-btn">Refresh</button>
-              </div>
-              <div 
-                v-for="item in player.character.inventory" 
-                :key="item.itemId"
-                class="inventory-item"
-                :class="getItemRarityClass(item)"
-                @click="useItem(item)"
-                @mouseenter="hoveredItem = item.itemId"
-                @mouseleave="hoveredItem = null"
+          <div class="panel-tabs">
+            <div class="tab-links">
+              <a 
+                :class="{ active: activeTab === 'inventory' }" 
+                @click="activeTab = 'inventory'"
               >
-                <div class="item-name">{{ getItemName(item) }} ({{ item.quantity }})</div>
-                <div class="item-type">{{ getItemType(item) }}</div>
-                <div v-if="hoveredItem === item.itemId" class="item-tooltip">
-                  <div class="tooltip-header">{{ getItemName(item) }}</div>
-                  <div class="tooltip-type">{{ capitalizeFirst(getItemType(item)) }}</div>
-                  <div class="tooltip-description">{{ getItemDescription(item) }}</div>
-                  
-                  <div v-if="hasItemAttributes(item)" class="tooltip-attributes">
-                    <div v-if="getItemDamage(item)">Damage: {{ getItemDamage(item) }}</div>
-                    <div v-if="getItemDefense(item)">Defense: {{ getItemDefense(item) }}</div>
-                    <!-- Other attributes would be shown here -->
+                Inventory
+              </a>
+              <a 
+                :class="{ active: activeTab === 'quests' }" 
+                @click="activeTab = 'quests'; fetchQuests()"
+              >
+                Quests
+              </a>
+            </div>
+            
+            <!-- Inventory Tab Content -->
+            <div class="tab-content" v-show="activeTab === 'inventory'">
+              <div class="inventory-header">
+                <span>Gold: {{ player.character.gold?.carried || 0 }}</span>
+                <button @click="refreshInventory" class="refresh-btn" title="Refresh Inventory">↻</button>
+              </div>
+              <div class="inventory-list">
+                <div v-if="!player.character.inventory || player.character.inventory.length === 0" class="empty-inventory">
+                  <div class="empty-message">Your inventory is empty</div>
+                  <button @click="refreshInventory" class="refresh-btn">Refresh</button>
+                </div>
+                <!-- Debug info for empty inventory -->
+                <div v-if="isDevelopment && (!player.character.inventory || player.character.inventory.length === 0)" class="debug-info">
+                  <div class="debug-header">Inventory Debug Info:</div>
+                  <div>Character has inventory array: {{ player.character.inventory ? 'Yes' : 'No' }}</div>
+                  <div v-if="player.character.inventory">Inventory length: {{ player.character.inventory.length }}</div>
+                  <pre class="debug-content">{{ JSON.stringify(player.character, null, 2) }}</pre>
+                </div>
+                <div 
+                  v-for="(item, index) in player.character.inventory" 
+                  :key="item.itemId || item.id || index"
+                  class="inventory-item"
+                  :class="getItemRarityClass(item)"
+                  @click="useItem(item)"
+                  @mouseenter="hoveredItem = item.itemId || item.id"
+                  @mouseleave="hoveredItem = null"
+                >
+                  <div class="item-name">{{ getItemName(item) }} ({{ item.quantity || 1 }})</div>
+                  <div class="item-type">{{ getItemType(item) }}</div>
+                  <div v-if="hoveredItem === item.itemId || hoveredItem === item.id" class="item-tooltip">
+                    <div class="tooltip-header">{{ getItemName(item) }}</div>
+                    <div class="tooltip-type">{{ capitalizeFirst(getItemType(item)) }}</div>
+                    <div class="tooltip-description">{{ getItemDescription(item) }}</div>
+                    
+                    <div v-if="hasItemAttributes(item)" class="tooltip-attributes">
+                      <div v-if="getItemDamage(item)">Damage: {{ getItemDamage(item) }}</div>
+                      <div v-if="getItemDefense(item)">Defense: {{ getItemDefense(item) }}</div>
+                      <!-- Display other attributes if available -->
+                      <div v-for="(value, key) in getAttributes(item)" :key="key" v-if="value && key !== 'damage' && key !== 'defense'">
+                        {{ formatAttributeName(key) }}: {{ value }}
+                      </div>
+                    </div>
+                    
+                    <div v-if="getRequiredLevel(item) > 1" class="tooltip-required">
+                      Requires Level: {{ getRequiredLevel(item) }}
+                    </div>
+                    
+                    <div class="tooltip-value">Value: {{ getItemValue(item) }} gold</div>
+                    <div class="tooltip-instructions">Click to use or equip</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Quests Tab Content -->
+            <div class="tab-content" v-show="activeTab === 'quests'">
+              <div class="quests-header">
+                <div class="quest-tabs">
+                  <a 
+                    :class="{ active: activeQuestTab === 'active' }" 
+                    @click="activeQuestTab = 'active'; fetchActiveQuests()"
+                  >
+                    Active Quests
+                  </a>
+                  <a 
+                    :class="{ active: activeQuestTab === 'available' }" 
+                    @click="activeQuestTab = 'available'; fetchAvailableQuests()"
+                  >
+                    Available Quests
+                  </a>
+                </div>
+                <button @click="fetchQuests" class="refresh-btn" title="Refresh Quests">↻</button>
+              </div>
+              
+              <!-- Active Quests -->
+              <div class="quest-list" v-if="activeQuestTab === 'active'">
+                <div v-if="!activeQuests || activeQuests.length === 0" class="empty-quests">
+                  <div class="empty-message">You have no active quests</div>
+                  <button @click="activeQuestTab = 'available'; fetchAvailableQuests()" class="find-quests-btn">Find Quests</button>
+                </div>
+                
+                <div 
+                  v-for="quest in activeQuests" 
+                  :key="quest.questId"
+                  class="quest-item"
+                  :class="{ 'quest-ready': questCanBeCompleted(quest) }"
+                >
+                  <div class="quest-header">
+                    <div class="quest-title">{{ quest.title }}</div>
+                    <div class="quest-status" :class="quest.status">{{ quest.status }}</div>
                   </div>
                   
-                  <div v-if="getRequiredLevel(item) > 1" class="tooltip-required">
-                    Requires Level: {{ getRequiredLevel(item) }}
+                  <div class="quest-description">{{ quest.description }}</div>
+                  
+                  <div class="quest-objectives">
+                    <div class="objectives-header">Objectives:</div>
+                    <div 
+                      v-for="objective in quest.objectives" 
+                      :key="objective.id || objective.type + objective.target"
+                      class="objective-item"
+                      :class="{ 'objective-complete': objective.completed }"
+                    >
+                      <div class="objective-progress">
+                        <div class="objective-text">{{ objective.description }}</div>
+                        <div class="objective-counter">{{ objective.current || 0 }}/{{ objective.required }}</div>
+                      </div>
+                      <div class="progress-bar objective-bar">
+                        <div 
+                          class="progress-fill objective-fill" 
+                          :style="{ width: `${Math.min(100, ((objective.current || 0) / objective.required) * 100)}%` }"
+                        ></div>
+                      </div>
+                    </div>
                   </div>
                   
-                  <div class="tooltip-value">Value: {{ getItemValue(item) }} gold</div>
-                  <div class="tooltip-instructions">Click to use or equip</div>
+                  <div class="quest-rewards" v-if="quest.rewards && quest.rewards.length > 0">
+                    <div class="rewards-header">Rewards:</div>
+                    <div 
+                      v-for="reward in quest.rewards" 
+                      :key="reward.type + (reward.value || '') + (reward.itemId || '')"
+                      class="reward-item"
+                    >
+                      <span v-if="reward.type === 'experience'">{{ reward.value }} Experience</span>
+                      <span v-else-if="reward.type === 'gold'">{{ reward.value }} Gold</span>
+                      <span v-else-if="reward.type === 'item'">{{ formatItemName(reward.itemId) }} x{{ reward.quantity || 1 }}</span>
+                      <span v-else-if="reward.type === 'attribute'">{{ reward.value }} {{ capitalizeFirst(reward.attribute) }}</span>
+                    </div>
+                  </div>
+                  
+                  <div class="quest-actions">
+                    <button 
+                      v-if="questCanBeCompleted(quest)" 
+                      @click="completeQuest(quest.questId)"
+                      class="complete-quest-btn"
+                    >
+                      Complete Quest
+                    </button>
+                    <div v-else class="quest-incomplete-msg">Complete all objectives to finish this quest</div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Available Quests -->
+              <div class="quest-list" v-if="activeQuestTab === 'available'">
+                <div v-if="!availableQuests || availableQuests.length === 0" class="empty-quests">
+                  <div class="empty-message">No quests available in this area</div>
+                  <div class="quest-suggestion">Try exploring other areas or talking to NPCs to discover new quests</div>
+                </div>
+                
+                <div 
+                  v-for="quest in availableQuests" 
+                  :key="quest.questId"
+                  class="quest-item available-quest"
+                >
+                  <div class="quest-header">
+                    <div class="quest-title">{{ quest.title }}</div>
+                    <div class="quest-level" v-if="quest.recommendedLevel">Level {{ quest.recommendedLevel }}+</div>
+                  </div>
+                  
+                  <div class="quest-description">{{ quest.description }}</div>
+                  
+                  <div class="quest-objectives">
+                    <div class="objectives-header">Objectives:</div>
+                    <div 
+                      v-for="objective in quest.objectives" 
+                      :key="objective.id || objective.type + objective.target"
+                      class="objective-item"
+                    >
+                      <div class="objective-text">{{ objective.description }}</div>
+                    </div>
+                  </div>
+                  
+                  <div class="quest-rewards" v-if="quest.rewards && quest.rewards.length > 0">
+                    <div class="rewards-header">Rewards:</div>
+                    <div 
+                      v-for="reward in quest.rewards" 
+                      :key="reward.type + (reward.value || '') + (reward.itemId || '')"
+                      class="reward-item"
+                    >
+                      <span v-if="reward.type === 'experience'">{{ reward.value }} Experience</span>
+                      <span v-else-if="reward.type === 'gold'">{{ reward.value }} Gold</span>
+                      <span v-else-if="reward.type === 'item'">{{ formatItemName(reward.itemId) }} x{{ reward.quantity || 1 }}</span>
+                      <span v-else-if="reward.type === 'attribute'">{{ reward.value }} {{ capitalizeFirst(reward.attribute) }}</span>
+                    </div>
+                  </div>
+                  
+                  <div class="quest-actions">
+                    <button 
+                      @click="acceptQuest(quest.questId)"
+                      class="accept-quest-btn"
+                    >
+                      Accept Quest
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -363,11 +615,21 @@ export default {
     const chatScope = ref('global');
     const currentZone = ref(null);
     const zoneEntities = ref([]);
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const showDebugInfo = ref(isDevelopment);
     
     // Grid map state
     const gridSize = 9; // 9x9 grid with player in the center
     const playerPosition = reactive({ x: Math.floor(gridSize/2), y: Math.floor(gridSize/2) });
     const gridMap = ref([]);
+    
+    // UI tabs state
+    const activeTab = ref('inventory');
+    const activeQuestTab = ref('active');
+    
+    // Quest state
+    const activeQuests = ref([]);
+    const availableQuests = ref([]);
     
     // Combat state
     const inCombat = ref(false);
@@ -437,7 +699,30 @@ export default {
         });
       }
       
-      // We don't add entities to the grid anymore - they're displayed in a separate list
+      // Add buildings from specialLocations to the grid
+      if (currentZone.value.specialLocations && currentZone.value.specialLocations.length > 0) {
+        currentZone.value.specialLocations.forEach(location => {
+          // Only add if the location has position info
+          if (location.position && typeof location.position.x === 'number' && typeof location.position.y === 'number') {
+            // Calculate grid position - buildings are placed relative to center
+            const gridX = centerX + location.position.x;
+            const gridY = centerY + location.position.y;
+            
+            // Check if this position is within the grid
+            if (gridX >= 0 && gridX < gridSize && gridY >= 0 && gridY < gridSize) {
+              // Add building to cell
+              gridMap.value[gridY][gridX].building = {
+                id: location.id || `location-${location.name.toLowerCase().replace(/\s+/g, '-')}`,
+                name: location.name,
+                type: location.locationType,
+                description: location.description
+              };
+              
+              console.log(`Added building ${location.name} at position (${gridX}, ${gridY})`);
+            }
+          }
+        });
+      }
       
       // Update player position
       updatePlayerPosition();
@@ -487,6 +772,18 @@ export default {
     const getCellSymbol = (cell) => {
       if (cell.type === 'wall') return '#';
       if (cell.type === 'door') return 'D';
+      if (cell.building) {
+        switch(cell.building.type) {
+          case 'shop': return '🏪';
+          case 'inn': return '🏠';
+          case 'bank': return '🏦';
+          case 'craftingStation': return '⚒️';
+          case 'shrine': return '🏮';
+          case 'questBoard': return '📜';
+          case 'trainingHall': return '🎯';
+          default: return '🏛️';
+        }
+      }
       return ' ';
     };
     
@@ -503,9 +800,115 @@ export default {
       }
     };
     
+    // Filter entities by type with enhanced validation and debugging
+    const getEntitiesByType = (entityType) => {
+      // Debug log to check monsters
+      if (entityType === 'monster') {
+        console.log('[CLIENT] Getting monsters from zone entities, total entities:', zoneEntities.value?.length || 0);
+        
+        // Check for entities missing the type property
+        const missingTypeEntities = (zoneEntities.value || []).filter(entity => !entity.type);
+        if (missingTypeEntities.length > 0) {
+          console.warn(`[CLIENT] Found ${missingTypeEntities.length} entities missing type property:`, missingTypeEntities);
+        }
+        
+        // Check for entities with the requested type
+        const typedEntities = (zoneEntities.value || []).filter(entity => entity.type === entityType);
+        console.log(`[CLIENT] Found ${typedEntities.length} ${entityType} entities:`, typedEntities);
+        
+        return typedEntities;
+      }
+      
+      // For other entity types, just filter normally
+      return (zoneEntities.value || []).filter(entity => entity.type === entityType);
+    };
+    
+    // Get icon for location type
+    const getLocationIcon = (locationType) => {
+      switch(locationType) {
+        case 'shop': return '🛒';
+        case 'bank': return '💰';
+        case 'shrine': return '🏮';
+        case 'inn': return '🏠';
+        case 'guildHall': return '⚔️';
+        case 'craftingStation': return '⚒️';
+        case 'trainingHall': return '🎯';
+        case 'questBoard': return '📜';
+        case 'auctionHouse': return '📊';
+        default: return '🏛️';
+      }
+    };
+    
+    // Format location type for display
+    const formatLocationType = (locationType) => {
+      switch(locationType) {
+        case 'shop': return 'Shop';
+        case 'bank': return 'Bank';
+        case 'shrine': return 'Shrine';
+        case 'inn': return 'Inn';
+        case 'guildHall': return 'Guild Hall';
+        case 'craftingStation': return 'Crafting Station';
+        case 'trainingHall': return 'Training Hall';
+        case 'questBoard': return 'Quest Board';
+        case 'auctionHouse': return 'Auction House';
+        default: return capitalizeFirst(locationType);
+      }
+    };
+    
+    // Interact with a special location
+    const interactWithLocation = (location) => {
+      addGameMessage(`Visiting ${location.name} (${formatLocationType(location.type)})`, 'info');
+      addGameMessage(location.description, 'info');
+      
+      // Implement specific interactions based on location type
+      switch(location.type) {
+        case 'shop':
+          addGameMessage('You browse the available wares.', 'info');
+          // In a real implementation, you would show a shop interface here
+          break;
+        case 'bank':
+          addGameMessage('You access your bank account.', 'info');
+          // In a real implementation, you would show a banking interface here
+          break;
+        case 'shrine':
+          addGameMessage('You feel a sense of peace and renewal.', 'info');
+          // In a real implementation, you would handle shrine effects like healing
+          socket.value.emit('player:action', {
+            type: 'useShrine',
+            locationId: location.id
+          });
+          break;
+        case 'inn':
+          addGameMessage('The innkeeper welcomes you warmly.', 'info');
+          // In a real implementation, you would show inn services
+          break;
+        default:
+          addGameMessage(`You visit ${location.name}.`, 'info');
+          socket.value.emit('player:action', {
+            type: 'visitLocation',
+            locationId: location.id
+          });
+      }
+    };
+    
     // Interact with a cell on the grid
     const interactWithCell = (row, col) => {
       const cell = gridMap.value[row][col];
+      
+      // Check if the cell has a building
+      if (cell.building) {
+        // Look up the full location details from specialLocations
+        const locationDetails = currentZone.value.specialLocations.find(loc => 
+          loc.name === cell.building.name || 
+          (loc.id && loc.id === cell.building.id)
+        );
+        
+        if (locationDetails) {
+          // Call the location interaction function
+          interactWithLocation(locationDetails);
+          return;
+        }
+      }
       
       // If cell is adjacent to player, move there
       if (isAdjacentToPlayer(row, col) && cell.type !== 'wall') {
@@ -558,6 +961,18 @@ export default {
           addGameMessage("Zone information request taking longer than expected...", 'warning');
         }
       }, 5000);
+    };
+    
+    // Function to refresh zone info (mainly for debugging)
+    const refreshZoneInfo = () => {
+      console.log('[CLIENT] Manually refreshing zone information');
+      addGameMessage("Manually refreshing zone data...", 'system');
+      
+      // Clear existing zone entities to make sure we get fresh ones
+      zoneEntities.value = [];
+      
+      // Request zone info from server
+      getZoneInfo();
     };
     
     // Connect to socket.io server
@@ -633,9 +1048,22 @@ export default {
               }
               
               if (result.loot && result.loot.length > 0) {
+                console.log("[CLIENT] Combat loot received:", result.loot);
                 result.loot.forEach(item => {
-                  addCombatMessage(`You received: ${item.name} x${item.quantity}`, 'item');
+                  // Ensure item has a proper name
+                  const itemName = item.name || 
+                    (item.itemId ? item.itemId.toString().replace(/-/g, ' ').replace(/^\w|\s\w/g, c => c.toUpperCase()) : 'Unknown Item');
+                  
+                  addCombatMessage(`You received: ${itemName} x${item.quantity || 1}`, 'item');
                 });
+                
+                // Since we just got loot, refresh inventory right away
+                console.log("[CLIENT] Automatically refreshing inventory after receiving loot");
+                setTimeout(() => {
+                  refreshInventory();
+                  // Additional refresh with delay as a fallback
+                  setTimeout(refreshInventory, 2000);
+                }, 500);
               }
               
               // Update player data in store if full update is provided
@@ -643,11 +1071,72 @@ export default {
                 store.commit('setPlayer', result.playerData);
               }
               
+              // Even if we don't get a full player data update, update the player's gold
+              if (result.goldGained && result.goldGained > 0) {
+                const updatedPlayer = { ...props.player };
+                updatedPlayer.character.gold = updatedPlayer.character.gold || { carried: 0, bank: 0 };
+                updatedPlayer.character.gold.carried += result.goldGained;
+                store.commit('setPlayer', updatedPlayer);
+              }
+              
+              // If we received loot, directly update inventory in store to avoid needing a separate server call
+              if (result.loot && result.loot.length > 0) {
+                // Clone player data
+                const updatedPlayer = { ...props.player };
+                
+                // Initialize inventory array if needed
+                if (!updatedPlayer.character.inventory) {
+                  updatedPlayer.character.inventory = [];
+                }
+                
+                // Add each loot item to inventory
+                result.loot.forEach(item => {
+                  // Add with all display properties intact
+                  updatedPlayer.character.inventory.push({
+                    id: item.itemId,
+                    itemId: item.itemId,
+                    name: item.name || item.itemId.toString().replace(/-/g, ' ').replace(/^\w|\s\w/g, c => c.toUpperCase()),
+                    description: item.description || 'An item you found',
+                    type: item.type || 'miscellaneous',
+                    rarity: item.rarity || 'common',
+                    value: item.value || 1,
+                    quantity: item.quantity || 1,
+                    stackable: item.stackable !== undefined ? item.stackable : true,
+                    maxStack: item.maxStack || 20
+                  });
+                });
+                
+                // Update the store
+                store.commit('setPlayer', updatedPlayer);
+              }
+              
               // Handle inventory updates
               if (result.type === 'getInventory' && result.inventory) {
+                console.log("[CLIENT] Inventory update received:", result.inventory);
+                
+                // Enhance inventory items with missing display properties
+                const enhancedInventory = result.inventory.map(item => {
+                  return {
+                    id: item.id || item.itemId,
+                    itemId: item.itemId || item.id,
+                    name: item.name || (item.itemId ? item.itemId.toString().replace(/-/g, ' ').replace(/^\w|\s\w/g, c => c.toUpperCase()) : 'Unknown Item'),
+                    description: item.description || `A ${item.type || 'mysterious'} item`,
+                    type: item.type || 'miscellaneous',
+                    subType: item.subType,
+                    rarity: item.rarity || 'common',
+                    value: item.value || 1,
+                    quantity: item.quantity || 1,
+                    stackable: item.stackable !== undefined ? item.stackable : true,
+                    maxStack: item.maxStack || 20,
+                    equippable: item.equippable || false,
+                    equipSlot: item.equipSlot,
+                    attributes: item.attributes || {}
+                  };
+                });
+                
                 // Update player inventory with detailed item information
                 const updatedPlayer = { ...props.player };
-                updatedPlayer.character.inventory = result.inventory;
+                updatedPlayer.character.inventory = enhancedInventory;
                 
                 if (result.equipment) {
                   updatedPlayer.character.equipment = result.equipment;
@@ -731,12 +1220,12 @@ export default {
           
           // Handle zone information
           if (result.zone) {
-            console.log('Received zone data:', result.zone);
+            console.log('[CLIENT] Received zone data:', result.zone);
             
             // Ensure the zone has a connections array
             if (!result.zone.connections) {
               result.zone.connections = [];
-              console.warn('Zone is missing connections array');
+              console.warn('[CLIENT] Zone is missing connections array');
             }
             
             // Store the zone information in both component and Vuex store
@@ -745,10 +1234,29 @@ export default {
             
             // Check if there are zone entities
             if (result.zone.entities) {
-              console.log('Zone entities:', result.zone.entities);
-              zoneEntities.value = result.zone.entities;
+              console.log('[CLIENT] Zone entities received:', result.zone.entities);
+              
+              // Fix any entities missing the type property (assume anything without type is a monster)
+              const fixedEntities = result.zone.entities.map(entity => {
+                if (!entity.type) {
+                  console.warn(`[CLIENT] Entity missing type property, defaulting to 'monster':`, entity);
+                  return {...entity, type: 'monster'};
+                }
+                return entity;
+              });
+              
+              // Debug logging specifically for monsters
+              const monsters = fixedEntities.filter(entity => entity.type === 'monster');
+              console.log('[CLIENT] Monsters in zone:', monsters);
+              if (monsters.length === 0) {
+                console.warn('[CLIENT] No monsters found in zone entities');
+              } else {
+                console.log('[CLIENT] First monster details:', monsters[0]);
+              }
+              
+              zoneEntities.value = fixedEntities;
             } else {
-              console.warn('No entities found in zone');
+              console.warn('[CLIENT] No entities found in zone');
               zoneEntities.value = [];
             }
             
@@ -797,7 +1305,235 @@ export default {
             }
           }
           
-          // If player data is updated (like after combat or item use)
+          // Handle dialogue from NPCs (talk action)
+          if (result.type === 'talk' && result.dialogue) {
+            addGameMessage(`${result.message}:`, 'info');
+            
+            // Display dialogue
+            for (const dialogue of result.dialogue) {
+              addGameMessage(`"${dialogue.text}"`, 'dialogue');
+              if (dialogue.response) {
+                addGameMessage(`You can respond: "${dialogue.response}"`, 'dialogue-response');
+              }
+            }
+            
+            // Show vendor inventory if applicable
+            if (result.isVendor && result.inventory) {
+              addGameMessage(`${result.npc.name} has items for sale:`, 'info');
+              for (const item of result.inventory) {
+                addGameMessage(`- ${item.itemId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${item.price} gold (Stock: ${item.stock === -1 ? 'Unlimited' : item.stock})`, 'item');
+              }
+            }
+          }
+          
+          // Handle location visits (visitLocation action)
+          if (result.type === 'visitLocation') {
+            addGameMessage(result.message, 'info');
+            
+            // Display location description
+            if (result.location && result.location.description) {
+              addGameMessage(result.location.description, 'description');
+            }
+            
+            // Handle shop inventory
+            if (result.shopInventory && result.shopInventory.length > 0) {
+              addGameMessage(`Available items for purchase:`, 'info');
+              for (const item of result.shopInventory) {
+                addGameMessage(`- ${item.itemId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${item.price} gold (Stock: ${item.stock === -1 ? 'Unlimited' : item.stock})`, 'item');
+              }
+            }
+            
+            // Handle inn services
+            if (result.services) {
+              addGameMessage(`The innkeeper offers rest for ${result.services.restCost} gold.`, 'info');
+              if (result.services.buffs && result.services.buffs.length > 0) {
+                addGameMessage(`Resting will provide the following benefits:`, 'info');
+                for (const buff of result.services.buffs) {
+                  addGameMessage(`- +${buff.value} ${buff.type} for ${Math.floor(buff.duration / 60)} minutes`, 'buff');
+                }
+              }
+            }
+            
+            // Handle bank account
+            if (result.bankAccount) {
+              addGameMessage(`Your bank balance: ${result.bankAccount.balance} gold`, 'info');
+              if (result.bankAccount.fees) {
+                if (result.bankAccount.fees.depositFee > 0) {
+                  addGameMessage(`Deposit fee: ${result.bankAccount.fees.depositFee}%`, 'info');
+                }
+                if (result.bankAccount.fees.withdrawalFee > 0) {
+                  addGameMessage(`Withdrawal fee: ${result.bankAccount.fees.withdrawalFee}%`, 'info');
+                }
+              }
+            }
+            
+            // Handle training programs
+            if (result.trainingPrograms && result.trainingPrograms.length > 0) {
+              addGameMessage(`Available training programs:`, 'info');
+              for (const program of result.trainingPrograms) {
+                addGameMessage(`- ${program.attribute.charAt(0).toUpperCase() + program.attribute.slice(1)} training: ${program.cost} gold (${Math.floor(program.duration / 60)} minutes, +${program.gainMin}-${program.gainMax} points)`, 'info');
+              }
+            }
+          }
+          
+          // Handle shrine use (useShrine action)
+          if (result.type === 'useShrine') {
+            if (result.healthRestored > 0) {
+              addGameMessage(`You restored ${result.healthRestored} health!`, 'heal');
+            }
+            if (result.manaRestored > 0) {
+              addGameMessage(`You restored ${result.manaRestored} mana!`, 'heal');
+            }
+          }
+          
+          // Handle item use (useItem action)
+          if (result.type === 'useItem') {
+            // Display specific effects applied
+            if (result.effectsApplied && result.effectsApplied.length > 0) {
+              result.effectsApplied.forEach(effect => {
+                if (effect.healthRestored) {
+                  addGameMessage(`Restored ${effect.healthRestored} health!`, 'heal');
+                }
+                if (effect.manaRestored) {
+                  addGameMessage(`Restored ${effect.manaRestored} mana!`, 'heal');
+                }
+                if (effect.buffApplied) {
+                  addGameMessage(`Applied buff: ${effect.value} for ${effect.duration} seconds.`, 'buff');
+                }
+              });
+              
+              // Update health and mana bars directly if provided
+              if (result.currentHealth !== undefined && result.maxHealth !== undefined) {
+                const updatedPlayer = { ...props.player };
+                updatedPlayer.character.health.current = result.currentHealth;
+                updatedPlayer.character.health.max = result.maxHealth;
+                store.commit('setPlayer', updatedPlayer);
+              }
+              
+              if (result.currentMana !== undefined && result.maxMana !== undefined) {
+                const updatedPlayer = { ...props.player };
+                updatedPlayer.character.mana.current = result.currentMana;
+                updatedPlayer.character.mana.max = result.maxMana;
+                store.commit('setPlayer', updatedPlayer);
+              }
+            }
+            
+            // Refresh inventory to reflect changes
+            setTimeout(() => {
+              refreshInventory();
+            }, 500);
+          }
+          
+          // Handle resource gathering (gather action)
+          if (result.type === 'gather') {
+            if (result.items && result.items.length > 0) {
+              for (const item of result.items) {
+                addGameMessage(`You gathered: ${item.itemId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} x${item.quantity}`, 'item');
+              }
+              
+              // Update inventory if items were gathered
+              if (result.playerData) {
+                store.commit('setPlayer', result.playerData);
+              } else {
+                // Refresh inventory after gathering
+                refreshInventory();
+              }
+            } else {
+              addGameMessage(`You didn't find anything useful.`, 'warning');
+            }
+          }
+          
+          // Handle quest-related actions
+          if (result.type === 'getAvailableQuests') {
+            if (result.quests) {
+              availableQuests.value = result.quests;
+              console.log("[CLIENT] Available quests updated:", availableQuests.value);
+            }
+          } else if (result.type === 'getActiveQuests') {
+            if (result.quests) {
+              activeQuests.value = result.quests;
+              console.log("[CLIENT] Active quests updated:", activeQuests.value);
+            }
+          } else if (result.type === 'acceptQuest') {
+            if (result.quest) {
+              addGameMessage(`Accepted quest: ${result.quest.title}`, 'quest');
+              
+              // Display quest start dialogue if available
+              if (result.quest.dialogueStart) {
+                addGameMessage(`"${result.quest.dialogueStart}"`, 'dialogue');
+              }
+              
+              // Display objectives
+              if (result.quest.objectives && result.quest.objectives.length > 0) {
+                addGameMessage(`Objectives:`, 'info');
+                result.quest.objectives.forEach(obj => {
+                  addGameMessage(`- ${obj.description} (0/${obj.required})`, 'objective');
+                });
+              }
+            }
+          } else if (result.type === 'completeQuest') {
+            addGameMessage(`Quest completed!`, 'quest-complete');
+            
+            // Display completion dialogue if available
+            if (result.dialogueComplete) {
+              addGameMessage(`"${result.dialogueComplete}"`, 'dialogue');
+            }
+            
+            // Display rewards
+            if (result.rewards && result.rewards.length > 0) {
+              addGameMessage(`Rewards:`, 'reward');
+              
+              result.rewards.forEach(reward => {
+                switch(reward.type) {
+                  case 'experience':
+                    addGameMessage(`- ${reward.value} experience points`, 'reward');
+                    if (reward.levelUp) {
+                      addGameMessage(`You've reached level ${reward.newLevel}!`, 'levelup');
+                    }
+                    break;
+                    
+                  case 'gold':
+                    addGameMessage(`- ${reward.value} gold`, 'reward');
+                    break;
+                    
+                  case 'item':
+                    addGameMessage(`- ${reward.itemId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} x${reward.quantity || 1}`, 'item');
+                    break;
+                    
+                  case 'attribute':
+                    addGameMessage(`- ${reward.value} ${reward.attribute} points`, 'reward');
+                    break;
+                }
+              });
+              
+              // Refresh inventory after rewards
+              setTimeout(() => {
+                refreshInventory();
+                refreshPlayerStats();
+              }, 500);
+            }
+          }
+          
+          // Handle quest progress in any result
+          if (result.questProgress) {
+            result.questProgress.forEach(quest => {
+              quest.objectivesUpdated.forEach(obj => {
+                const progressText = `${obj.current}/${obj.required}`;
+                addGameMessage(`Quest progress: ${quest.name} - ${progressText}`, 'quest-progress');
+                
+                if (obj.completed) {
+                  addGameMessage(`Objective completed: ${obj.description}`, 'objective-complete');
+                }
+              });
+              
+              // If quest is ready to complete
+              if (quest.completed) {
+                addGameMessage(`Quest "${quest.name}" can now be completed!`, 'quest-ready');
+              }
+            });
+          }
+          
+          // If player data is updated (like after combat, item use, or shrine use)
           if (result.playerData) {
             store.commit('setPlayer', result.playerData);
             
@@ -1125,10 +1861,16 @@ export default {
       return str.charAt(0).toUpperCase() + str.slice(1);
     };
     
-    // Item display helper methods
+    // Improved item display helper methods
     const getItemName = (item) => {
       // Check if the item has a direct name property
       if (item.name) return item.name;
+      
+      // Check for id
+      if (item.id && item.id !== item.itemId) {
+        const idName = item.id.toString().replace(/-/g, ' ');
+        return capitalizeFirst(idName);
+      }
       
       // Convert itemId to a nice display name if no name provided
       if (item.itemId) {
@@ -1143,26 +1885,41 @@ export default {
       // Return type if available
       if (item.type) return item.type;
       
-      // Try to guess type from itemId
-      if (item.itemId) {
-        if (item.itemId.includes('sword') || 
-            item.itemId.includes('axe') || 
-            item.itemId.includes('dagger') ||
-            item.itemId.includes('staff')) {
+      // Try to guess type from itemId or id
+      const itemIdentifier = item.itemId || item.id;
+      if (itemIdentifier) {
+        if (itemIdentifier.includes('sword') || 
+            itemIdentifier.includes('axe') || 
+            itemIdentifier.includes('dagger') ||
+            itemIdentifier.includes('staff') ||
+            itemIdentifier.includes('wand') ||
+            itemIdentifier.includes('bow')) {
           return 'weapon';
         }
         
-        if (item.itemId.includes('armor') || 
-            item.itemId.includes('helm') || 
-            item.itemId.includes('boots') ||
-            item.itemId.includes('shield')) {
+        if (itemIdentifier.includes('armor') || 
+            itemIdentifier.includes('helm') || 
+            itemIdentifier.includes('boots') ||
+            itemIdentifier.includes('shield') ||
+            itemIdentifier.includes('gloves') ||
+            itemIdentifier.includes('bracers')) {
           return 'armor';
         }
         
-        if (item.itemId.includes('potion') || 
-            item.itemId.includes('food') || 
-            item.itemId.includes('herb')) {
+        if (itemIdentifier.includes('potion') || 
+            itemIdentifier.includes('food') || 
+            itemIdentifier.includes('herb') ||
+            itemIdentifier.includes('scroll') ||
+            itemIdentifier.includes('elixir')) {
           return 'consumable';
+        }
+        
+        if (itemIdentifier.includes('pelt') ||
+            itemIdentifier.includes('fang') ||
+            itemIdentifier.includes('material') ||
+            itemIdentifier.includes('hide') ||
+            itemIdentifier.includes('cloth')) {
+          return 'material';
         }
       }
       
@@ -1171,7 +1928,23 @@ export default {
     
     const getItemDescription = (item) => {
       if (item.description) return item.description;
-      return `A ${getItemType(item)} that you obtained during your adventures.`;
+      
+      // Generate a semi-intelligent description based on the item ID or type
+      const itemType = getItemType(item);
+      const itemName = getItemName(item);
+      
+      switch (itemType) {
+        case 'weapon':
+          return `A ${itemName.toLowerCase()} that can be used in combat.`;
+        case 'armor':
+          return `${itemName} that provides protection in battle.`;
+        case 'consumable':
+          return `A ${itemName.toLowerCase()} that can be consumed for beneficial effects.`;
+        case 'material':
+          return `A crafting material that could be used to create items.`;
+        default:
+          return `A ${itemType} that you obtained during your adventures.`;
+      }
     };
     
     const getItemRarityClass = (item) => {
@@ -1230,14 +2003,96 @@ export default {
       return item.value || 1;
     };
     
+    // Get all attributes from an item for display
+    const getAttributes = (item) => {
+      if (item.attributes) return item.attributes;
+      
+      // Create a default attributes object from item properties
+      const attributes = {};
+      
+      if (item.strengthBonus) attributes.strengthBonus = item.strengthBonus;
+      if (item.dexterityBonus) attributes.dexterityBonus = item.dexterityBonus;
+      if (item.intelligenceBonus) attributes.intelligenceBonus = item.intelligenceBonus;
+      if (item.constitutionBonus) attributes.constitutionBonus = item.constitutionBonus;
+      if (item.wisdomBonus) attributes.wisdomBonus = item.wisdomBonus;
+      if (item.vitalityBonus) attributes.vitalityBonus = item.vitalityBonus;
+      
+      return attributes;
+    };
+    
     // Use an item from inventory
     const useItem = (item) => {
       const itemName = getItemName(item);
+      const itemId = item.itemId || item.id;
+      
+      if (!itemId) {
+        addGameMessage(`Unable to use item: No valid ID found`, 'error');
+        return;
+      }
+      
       addGameMessage(`Using item: ${itemName}`, 'info');
       socket.value.emit('player:action', {
         type: 'useItem',
-        itemId: item.itemId
+        itemId: itemId
       });
+    };
+    
+    // Quest functions
+    const fetchQuests = () => {
+      fetchActiveQuests();
+      fetchAvailableQuests();
+    };
+    
+    const fetchActiveQuests = () => {
+      if (!socket.value) return;
+      
+      socket.value.emit('player:action', {
+        type: 'getActiveQuests'
+      });
+      
+      addGameMessage('Retrieving active quests...', 'system');
+    };
+    
+    const fetchAvailableQuests = () => {
+      if (!socket.value) return;
+      
+      socket.value.emit('player:action', {
+        type: 'getAvailableQuests'
+      });
+      
+      addGameMessage('Retrieving available quests...', 'system');
+    };
+    
+    const acceptQuest = (questId) => {
+      if (!socket.value) return;
+      
+      socket.value.emit('player:action', {
+        type: 'acceptQuest',
+        questId: questId
+      });
+      
+      addGameMessage(`Accepting quest...`, 'system');
+    };
+    
+    const completeQuest = (questId) => {
+      if (!socket.value) return;
+      
+      socket.value.emit('player:action', {
+        type: 'completeQuest',
+        questId: questId
+      });
+      
+      addGameMessage(`Completing quest...`, 'system');
+    };
+    
+    const questCanBeCompleted = (quest) => {
+      if (!quest || !quest.objectives) return false;
+      return quest.objectives.every(obj => obj.completed);
+    };
+    
+    const formatItemName = (itemId) => {
+      if (!itemId) return 'Unknown Item';
+      return itemId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     };
     
     // Refresh inventory data from server
@@ -1427,8 +2282,13 @@ export default {
       getEntityMarker,
       interactWithCell,
       getZoneInfo,
+      refreshZoneInfo,
       playerPosition,
       gridSize,
+      getEntitiesByType,
+      getLocationIcon,
+      formatLocationType,
+      interactWithLocation,
       inCombat,
       currentTarget,
       combatLog,
@@ -1450,6 +2310,7 @@ export default {
       getItemDefense,
       getRequiredLevel,
       getItemValue,
+      getAttributes,
       // New Chronicle (chat) system
       chatChannels,
       selectedChatChannel,
@@ -1457,7 +2318,21 @@ export default {
       showTimestamps,
       toggleTimestamps,
       formatTimestamp,
-      privateTarget
+      privateTarget,
+      showDebugInfo,
+      isDevelopment,
+      // Quest system
+      activeTab,
+      activeQuestTab,
+      activeQuests,
+      availableQuests,
+      fetchQuests,
+      fetchActiveQuests,
+      fetchAvailableQuests,
+      acceptQuest,
+      completeQuest,
+      questCanBeCompleted,
+      formatItemName
     };
   }
 };
@@ -1601,6 +2476,20 @@ export default {
   color: white;
 }
 
+.cell-building {
+  background-color: #7c3aed; /* Purple */
+  color: white;
+  border: 1px solid #9f7aea;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.cell-building:hover {
+  transform: scale(1.15);
+  z-index: 15;
+  box-shadow: 0 0 8px rgba(124, 58, 237, 0.8);
+}
+
 .player-marker, .entity-marker {
   font-weight: bold;
 }
@@ -1666,6 +2555,163 @@ export default {
   font-style: italic;
 }
 
+.ambient-text {
+  margin-top: 10px;
+  font-style: italic;
+  color: #aaa;
+  border-top: 1px solid #444;
+  padding-top: 8px;
+}
+
+/* Locations Section */
+.locations-section {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  border: 1px solid #444;
+}
+
+.locations-section h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #ffcc00;
+  border-bottom: 1px solid #444;
+  padding-bottom: 5px;
+}
+
+.location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.location-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  background-color: #333;
+  border-radius: 4px;
+  transition: all 0.2s;
+  cursor: pointer;
+  border-left: 3px solid #666;
+}
+
+.location-item:hover {
+  background-color: #3a3a3a;
+  transform: translateX(2px);
+}
+
+.location-icon {
+  margin-right: 8px;
+  font-size: 1.2em;
+}
+
+.location-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.location-name {
+  font-weight: bold;
+  color: #fff;
+}
+
+.location-type {
+  font-size: 0.8em;
+  color: #aaa;
+}
+
+.location-shop { border-left-color: #4caf50; }
+.location-bank { border-left-color: #ffc107; }
+.location-shrine { border-left-color: #9c27b0; }
+.location-inn { border-left-color: #795548; }
+.location-guildHall { border-left-color: #f44336; }
+.location-craftingStation { border-left-color: #ff9800; }
+.location-trainingHall { border-left-color: #2196f3; }
+.location-questBoard { border-left-color: #ff5722; }
+.location-auctionHouse { border-left-color: #009688; }
+
+/* Zone Entities Container */
+.zone-entities-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.monsters-section, .npcs-section, .resources-section {
+  padding: 10px;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  border: 1px solid #444;
+}
+
+.monsters-section h4, .npcs-section h4, .resources-section h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #444;
+}
+
+.monsters-section h4 { color: #f44336; }
+.npcs-section h4 { color: #4caf50; }
+.resources-section h4 { color: #2196f3; }
+
+.entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.monster-entity {
+  border-left-color: #f44336;
+}
+
+.npc-entity {
+  border-left-color: #4caf50;
+}
+
+.resource-entity {
+  border-left-color: #2196f3;
+}
+
+.talk-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.talk-btn:hover {
+  background-color: #3d8b40;
+  transform: scale(1.05);
+}
+
+.gather-btn {
+  background-color: #2196f3;
+  color: white;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.gather-btn:hover {
+  background-color: #1976d2;
+  transform: scale(1.05);
+}
+
 /* Game Messages */
 .game-output {
   flex: 1;
@@ -1729,6 +2775,52 @@ export default {
 .game-message.danger {
   color: #ff0000;
   font-weight: bold;
+}
+
+.game-message.heal {
+  color: #2ecc71;
+  font-weight: bold;
+}
+
+.game-message.buff {
+  color: #3498db;
+  font-weight: bold;
+}
+
+.game-message.quest {
+  color: #f39c12; /* Orange */
+  font-weight: bold;
+}
+
+.game-message.quest-progress {
+  color: #d35400; /* Darker orange */
+}
+
+.game-message.quest-ready {
+  color: #f1c40f; /* Yellow */
+  font-weight: bold;
+}
+
+.game-message.quest-complete {
+  color: #e67e22; /* Orange */
+  font-weight: bold;
+  text-shadow: 0 0 3px rgba(230, 126, 34, 0.3);
+}
+
+.game-message.objective {
+  color: #d35400; /* Darker orange */
+  margin-left: 1em;
+}
+
+.game-message.objective-complete {
+  color: #27ae60; /* Green */
+  font-weight: bold;
+}
+
+.game-message.dialogue {
+  color: #95a5a6; /* Gray */
+  font-style: italic;
+  margin-left: 1em;
 }
 
 .combat-status {
@@ -2432,5 +3524,315 @@ export default {
 .refresh-stats-btn:hover {
   background-color: #444;
   color: #fff;
+}
+
+/* Debug styles */
+.debug-info {
+  margin-top: 10px;
+  padding: 8px;
+  background-color: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.8em;
+}
+
+.debug-header {
+  color: #ff5722;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.debug-content {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  background-color: #000;
+  padding: 5px;
+  border-radius: 3px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.entity-debug-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 5px;
+  background-color: #333;
+  border-radius: 4px;
+}
+
+.debug-toggle {
+  background-color: #555;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.debug-toggle:hover {
+  background-color: #777;
+}
+
+/* Quest System Styles */
+.quests-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background-color: #2c2c2c;
+  border-bottom: 1px solid #444;
+  border-radius: 4px 4px 0 0;
+}
+
+.quest-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.quest-tabs a {
+  padding: 5px 10px;
+  background-color: #333;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all 0.2s;
+}
+
+.quest-tabs a:hover {
+  background-color: #444;
+  color: #fff;
+}
+
+.quest-tabs a.active {
+  background-color: #4a6da7;
+  color: #fff;
+}
+
+.quest-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.empty-quests {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  gap: 10px;
+}
+
+.empty-message {
+  color: #999;
+  font-style: italic;
+  margin-bottom: 10px;
+}
+
+.quest-suggestion {
+  font-size: 0.9em;
+  color: #777;
+}
+
+.find-quests-btn {
+  background-color: #4a6da7;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 15px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.find-quests-btn:hover {
+  background-color: #5a7db7;
+}
+
+.quest-item {
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  padding: 12px;
+  transition: all 0.2s;
+}
+
+.quest-item:hover {
+  border-color: #666;
+  background-color: #2f2f2f;
+}
+
+.quest-ready {
+  border-left: 4px solid #4caf50;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
+}
+
+.available-quest {
+  border-left: 4px solid #3f51b5;
+}
+
+.quest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.quest-title {
+  font-weight: bold;
+  color: #eee;
+  font-size: 1.1em;
+}
+
+.quest-status {
+  font-size: 0.8em;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background-color: #555;
+  color: white;
+}
+
+.quest-status.active {
+  background-color: #3f51b5;
+}
+
+.quest-status.completed {
+  background-color: #4caf50;
+}
+
+.quest-status.failed {
+  background-color: #f44336;
+}
+
+.quest-level {
+  font-size: 0.8em;
+  color: #aaa;
+  padding: 3px 8px;
+  background-color: #333;
+  border-radius: 10px;
+}
+
+.quest-description {
+  margin-bottom: 15px;
+  color: #ccc;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.quest-objectives {
+  margin-bottom: 15px;
+}
+
+.objectives-header, .rewards-header {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: #aaa;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 5px;
+}
+
+.objective-item {
+  margin-bottom: 8px;
+  padding: 5px;
+  background-color: #333;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.objective-progress {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.objective-text {
+  color: #ddd;
+}
+
+.objective-counter {
+  color: #aaa;
+}
+
+.objective-complete {
+  background-color: #2e3f2e;
+  border-left: 3px solid #4caf50;
+}
+
+.objective-complete .objective-text {
+  text-decoration: line-through;
+  color: #8bc34a;
+}
+
+.objective-bar {
+  height: 5px;
+  background-color: #444;
+}
+
+.objective-fill {
+  background-color: #3f51b5;
+}
+
+.objective-complete .objective-fill {
+  background-color: #4caf50;
+}
+
+.quest-rewards {
+  margin-bottom: 15px;
+}
+
+.reward-item {
+  background-color: #333;
+  padding: 5px 10px;
+  margin-bottom: 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  color: #eee;
+}
+
+.quest-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.accept-quest-btn, .complete-quest-btn {
+  padding: 8px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+}
+
+.accept-quest-btn {
+  background-color: #3f51b5;
+  color: white;
+}
+
+.accept-quest-btn:hover {
+  background-color: #4a5fc5;
+}
+
+.complete-quest-btn {
+  background-color: #4caf50;
+  color: white;
+}
+
+.complete-quest-btn:hover {
+  background-color: #5cb85c;
+}
+
+.quest-incomplete-msg {
+  color: #999;
+  font-style: italic;
+  font-size: 0.9em;
+  text-align: right;
 }
 </style> 
