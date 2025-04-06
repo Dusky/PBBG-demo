@@ -510,6 +510,17 @@ io.on('connection', (socket) => {
             scope: 'private',
             timestamp: Date.now()
           });
+        } 
+        // If we have a target name but no ID, send system message
+        else if (message.targetName) {
+          // Send message back to sender that feature is in development
+          socket.emit('chat:message', {
+            playerId: 'system',
+            playerName: 'System',
+            content: `Private message to "${message.targetName}" could not be delivered (feature in development)`,
+            scope: 'system',
+            timestamp: Date.now()
+          });
         }
         break;
     }

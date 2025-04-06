@@ -231,27 +231,56 @@
         </div>
         
         <div class="game-panel right-panel">
-          <div class="chat-window">
-            <h3>Chat</h3>
-            <div class="chat-messages">
-              <div v-for="(message, index) in chatMessages" :key="index" class="chat-message" :class="message.scope">
-                <span class="chat-sender">{{ message.playerName }}:</span>
-                <span class="chat-content">{{ message.content }}</span>
+          <div class="chat-window chronicle-panel">
+            <div class="chronicle-header">
+              <h3>The Chronicle</h3>
+              <div class="channel-tabs">
+                <span 
+                  v-for="channel in chatChannels" 
+                  :key="channel.value" 
+                  @click="selectedChatChannel = channel.value"
+                  class="channel-tab"
+                  :class="{ 'active': selectedChatChannel === channel.value }"
+                >
+                  {{ channel.label }}
+                </span>
               </div>
             </div>
-            <div class="chat-input">
-              <select v-model="chatScope" class="chat-scope-select">
-                <option value="global">Global</option>
-                <option value="zone">Zone</option>
-                <option value="private">Private</option>
-              </select>
-              <input 
-                v-model="chatInput" 
-                @keyup.enter="sendChatMessage"
-                placeholder="Type a message..."
-                class="chat-text-input"
-              />
-              <button @click="sendChatMessage" class="chat-send-button">Send</button>
+            <div class="chronicle-messages">
+              <div 
+                v-for="(message, index) in filteredChatMessages" 
+                :key="index" 
+                class="chronicle-entry"
+                :class="message.scope"
+              >
+                <span class="message-timestamp" v-if="showTimestamps">{{ formatTimestamp(message.timestamp) }}</span>
+                <span class="message-sender" :class="'sender-' + message.scope">{{ message.playerName }}:</span>
+                <span class="message-content">{{ message.content }}</span>
+              </div>
+            </div>
+            <div class="chronicle-input">
+              <div class="input-controls">
+                <select v-model="chatScope" class="channel-select">
+                  <option value="global">Global</option>
+                  <option value="zone">Zone</option>
+                  <option value="private">Private</option>
+                </select>
+                <span class="input-target" v-if="chatScope === 'private'">
+                  To: <input v-model="privateTarget" placeholder="Player name" class="target-input" />
+                </span>
+                <button @click="toggleTimestamps" class="timestamp-toggle" :class="{ 'active': showTimestamps }">
+                  🕒
+                </button>
+              </div>
+              <div class="input-field">
+                <input 
+                  v-model="chatInput" 
+                  @keyup.enter="sendChatMessage"
+                  placeholder="Type a message..."
+                  class="chronicle-text-input"
+                />
+                <button @click="sendChatMessage" class="chronicle-send-button">Send</button>
+              </div>
             </div>
           </div>
           
@@ -978,6 +1007,40 @@ export default {
       }
     };
     
+    // Chat system enhancements
+    const chatChannels = ref([
+      { label: 'All', value: 'all' },
+      { label: 'Global', value: 'global' },
+      { label: 'Zone', value: 'zone' },
+      { label: 'Private', value: 'private' }
+    ]);
+    
+    const selectedChatChannel = ref('all');
+    const showTimestamps = ref(false);
+    const privateTarget = ref('');
+    
+    // Format timestamp for chat messages
+    const formatTimestamp = (timestamp) => {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      return `[${hours}:${minutes}]`;
+    };
+    
+    // Toggle timestamp display
+    const toggleTimestamps = () => {
+      showTimestamps.value = !showTimestamps.value;
+    };
+    
+    // Filter chat messages based on selected channel
+    const filteredChatMessages = computed(() => {
+      if (selectedChatChannel.value === 'all') {
+        return chatMessages.value;
+      }
+      return chatMessages.value.filter(msg => msg.scope === selectedChatChannel.value);
+    });
+    
     // Send chat message
     const sendChatMessage = () => {
       if (!chatInput.value.trim()) return;
@@ -986,21 +1049,45 @@ export default {
         content: chatInput.value.trim(),
         playerName: props.player.character.name,
         scope: chatScope.value,
-        zone: currentZone.value ? currentZone.value.name : null
+        zone: currentZone.value ? currentZone.value.name : null,
+        timestamp: Date.now()
       };
       
-      // If it's a private message, need to extract the target
+      // Handle private messages with the target input field
       if (chatScope.value === 'private') {
-        // Simple example: /w targetName message
-        if (message.content.startsWith('/w ')) {
-          const parts = message.content.substring(3).trim().split(' ');
-          if (parts.length >= 2) {
-            message.targetName = parts[0];
-            message.content = parts.slice(1).join(' ');
+        if (privateTarget.value.trim()) {
+          message.targetName = privateTarget.value.trim();
+        } else {
+          // Check if there's an inline target like "/w targetName message"
+          if (message.content.startsWith('/w ') || message.content.startsWith('/whisper ')) {
+            const parts = message.content.replace(/^\/w(hisper)?\s+/, '').trim().split(' ');
+            if (parts.length >= 2) {
+              message.targetName = parts[0];
+              message.content = parts.slice(1).join(' ');
+            } else {
+              addGameMessage("Please specify a target for your private message.", 'warning');
+              return;
+            }
+          } else {
+            addGameMessage("Please specify a target for your private message.", 'warning');
+            return;
           }
         }
       }
       
+      // Add to local message list immediately for better UX
+      chatMessages.value.push({
+        playerId: 'self',
+        playerName: props.player.character.name,
+        content: message.content,
+        scope: message.scope,
+        timestamp: message.timestamp
+      });
+      
+      // Scroll to bottom
+      scrollChatToBottom();
+      
+      // Send to server
       socket.value.emit('chat:message', message);
       chatInput.value = '';
     };
@@ -1220,7 +1307,15 @@ export default {
       addCombatMessage,
       hoveredItem,
       formatAttributeName,
-      capitalizeFirst
+      capitalizeFirst,
+      // New Chronicle (chat) system
+      chatChannels,
+      selectedChatChannel,
+      filteredChatMessages,
+      showTimestamps,
+      toggleTimestamps,
+      formatTimestamp,
+      privateTarget
     };
   }
 };
@@ -1652,75 +1747,211 @@ export default {
   cursor: not-allowed;
 }
 
-/* Chat and Inventory */
-.chat-window {
+/* Chronicle (Chat) System */
+.chronicle-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   border: 1px solid #444;
+  background-color: #222;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.chronicle-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid #444;
+  background-color: #2a2a2a;
+  display: flex;
+  flex-direction: column;
+}
+
+.chronicle-header h3 {
+  margin: 0 0 8px 0;
+  text-align: center;
+  color: #ffcc00;
+  font-size: 16px;
+}
+
+.channel-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.channel-tab {
+  padding: 4px 8px;
+  border-radius: 4px 4px 0 0;
   background-color: #333;
-  margin-bottom: 10px;
-  padding: 10px;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: all 0.2s;
 }
 
-.chat-messages {
-  height: 150px;
+.channel-tab:hover {
+  background-color: #3a3a3a;
+  color: #fff;
+}
+
+.channel-tab.active {
+  background-color: #444;
+  color: #ffcc00;
+  font-weight: bold;
+}
+
+.chronicle-messages {
+  flex: 1;
   overflow-y: auto;
-  margin-bottom: 10px;
+  padding: 8px;
+  background-color: #111;
+  font-family: 'Courier New', monospace;
+  min-height: 150px;
 }
 
-.chat-message {
-  margin: 5px 0;
+.chronicle-entry {
+  margin: 4px 0;
   word-wrap: break-word;
+  line-height: 1.4;
+  padding: 2px 4px;
+  border-radius: 2px;
+  transition: background-color 0.2s;
 }
 
-.chat-sender {
+.chronicle-entry:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.message-timestamp {
+  font-size: 0.75em;
+  color: #666;
+  margin-right: 5px;
+}
+
+.message-sender {
   font-weight: bold;
   margin-right: 5px;
 }
 
-.chat-message.global .chat-sender {
+.sender-global {
   color: #ffcc00;
 }
 
-.chat-message.zone .chat-sender {
+.sender-zone {
   color: #00ccff;
 }
 
-.chat-message.private .chat-sender {
+.sender-private {
   color: #ff00cc;
 }
 
-.chat-input {
-  display: flex;
+.message-content {
+  color: #ddd;
 }
 
-.chat-scope-select {
+.chronicle-entry.global {
+  /* you can add specific styling for global messages */
+}
+
+.chronicle-entry.zone {
+  /* styling for zone messages */
+}
+
+.chronicle-entry.private {
+  background-color: rgba(255, 0, 200, 0.05);
+}
+
+.chronicle-input {
+  padding: 8px;
+  background-color: #2a2a2a;
+  border-top: 1px solid #444;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.channel-select {
   width: 80px;
   background-color: #333;
   color: #fff;
   border: 1px solid #555;
+  border-radius: 3px;
+  padding: 3px;
+  font-size: 0.9em;
 }
 
-.chat-text-input {
-  flex: 1;
-  padding: 5px;
+.input-target {
+  display: flex;
+  align-items: center;
+  color: #aaa;
+  font-size: 0.9em;
+  gap: 4px;
+}
+
+.target-input {
+  width: 100px;
   background-color: #333;
   color: #fff;
   border: 1px solid #555;
-  margin: 0 5px;
+  border-radius: 3px;
+  padding: 3px;
+  font-size: 0.9em;
 }
 
-.chat-send-button {
-  padding: 5px 10px;
+.timestamp-toggle {
+  margin-left: auto;
+  background-color: #333;
+  color: #aaa;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 2px 5px;
+  cursor: pointer;
+  font-size: 0.8em;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timestamp-toggle.active {
   background-color: #444;
   color: #fff;
-  border: 1px solid #555;
-  cursor: pointer;
 }
 
-.chat-send-button:hover {
-  background-color: #555;
+.input-field {
+  display: flex;
+  gap: 5px;
+}
+
+.chronicle-text-input {
+  flex: 1;
+  padding: 6px 8px;
+  background-color: #333;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+.chronicle-send-button {
+  padding: 6px 12px;
+  background-color: #4c6b22;
+  color: #fff;
+  border: 1px solid #5d8228;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.chronicle-send-button:hover {
+  background-color: #5d8228;
 }
 
 .inventory-panel {
