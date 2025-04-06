@@ -9,14 +9,19 @@ const dotenv = require('dotenv');
 const Player = require('./models/Player');
 const Monster = require('./models/Monster');
 const Zone = require('./models/Zone');
+const Map = require('./models/Map');
 
 // Import routes
 const authRoutes = require('./routes/auth');
 
 // Import middleware
 const auth = require('./middleware/auth');
-// Import game service and player actions
+// Import services
 const gameService = require('./services/gameService');
+const locationService = require('./services/locationService');
+const lootService = require('./services/lootService');
+const inventoryService = require('./services/inventoryService');
+const mapService = require('./services/mapService');
 const { playerActions } = gameService;
 
 // Load environment variables
@@ -89,6 +94,105 @@ io.on('connection', (socket) => {
     }
   });
   
+  // Helper function to handle player actions
+  const handlePlayerAction = async (playerId, action) => {
+    try {
+      switch (action.type) {
+        case 'getMapView':
+          // Get the player's current map view
+          const viewRadius = action.viewRadius || 10;
+          const mapViewPlayer = await Player.findById(playerId);
+            
+          if (!mapViewPlayer) {
+            return { success: false, message: 'Player not found' };
+          }
+            
+          // Check if player is on a map
+          if (!mapViewPlayer.character.currentMap) {
+            return { success: false, message: 'Player is not on a map' };
+          }
+            
+          // Get the map view from the map service
+          return await mapService.getMapView(playerId, viewRadius);
+          
+        case 'enterMap':
+          // Move player to a map
+          const { mapName, x, y } = action;
+          if (!mapName) {
+            return { success: false, message: 'Map name is required' };
+          }
+            
+          // Default coordinates if not provided
+          const targetX = x || 0;
+          const targetY = y || 0;
+            
+          // Move player to the map
+          const moveResult = await mapService.movePlayerToMap(playerId, mapName, targetX, targetY);
+            
+          // If successful, also return the map view
+          if (moveResult.success) {
+            const mapView = await mapService.getMapView(playerId);
+            moveResult.mapView = mapView;
+          }
+          return moveResult;
+          
+        case 'listMaps':
+          // List all available maps
+          const maps = await mapService.listMaps();
+          return {
+            success: true,
+            maps: maps.map(map => ({
+              name: map.name,
+              displayName: map.displayName,
+              regionType: map.regionType,
+              levelRange: map.levelRange,
+              isDangerous: map.properties?.isDangerous,
+              isSafe: map.properties?.isSafe,
+              isStartingMap: map.properties?.isStartingMap
+            }))
+          };
+        
+        case 'movePosition':
+          // Move player on a map
+          const movePosPlayer = await Player.findById(playerId);
+          if (!movePosPlayer) {
+            return { success: false, message: 'Player not found' };
+          }
+          
+          // If on a map, use mapService
+          if (movePosPlayer.character.currentMap) {
+            return await mapService.movePlayerOnMap(playerId, action.x, action.y);
+          } else {
+            // Legacy position update for zones
+            const prevX = movePosPlayer.character.position.x;
+            const prevY = movePosPlayer.character.position.y;
+            
+            // Update position
+            movePosPlayer.character.position.x = action.x;
+            movePosPlayer.character.position.y = action.y;
+            
+            // Track steps
+            if (action.x !== prevX || action.y !== prevY) {
+              if (!movePosPlayer.character.stats) {
+                movePosPlayer.character.stats = {};
+              }
+              movePosPlayer.character.stats.stepsWalked = (movePosPlayer.character.stats.stepsWalked || 0) + 1;
+            }
+            
+            await movePosPlayer.save();
+            return { success: true, position: { x: action.x, y: action.y } };
+          }
+          
+        // Default actions proceed unchanged
+        default:
+          return null;
+      }
+    } catch (error) {
+      console.error(`Error handling action ${action.type}:`, error);
+      return { success: false, message: `Error processing ${action.type}: ${error.message}` };
+    }
+  };
+  
   // Handle player actions
   socket.on('player:action', async (action) => {
     try {
@@ -99,10 +203,96 @@ io.on('connection', (socket) => {
         return;
       }
       
+      // First try new action handler
+      const mapResult = await handlePlayerAction(playerId, action);
+      if (mapResult) {
+        // Got a result from the map handler
+        socket.emit('player:action:result', mapResult);
+        return;
+      }
+      
+      // Otherwise fall back to original handlers
       let result;
       
       // Process different player actions
       switch (action.type) {
+        case 'getPlayerStats':
+          // Get player stats
+          try {
+            const statsPlayer = await Player.findById(playerId);
+            if (!statsPlayer) {
+              result = { success: false, message: 'Player not found' };
+              break;
+            }
+            
+            result = { 
+              success: true,
+              type: 'getPlayerStats',
+              message: 'Player stats retrieved',
+              level: statsPlayer.character.level,
+              experience: statsPlayer.character.experience,
+              experienceToNextLevel: statsPlayer.character.experienceToNextLevel,
+              health: statsPlayer.character.health,
+              mana: statsPlayer.character.mana,
+              attributes: statsPlayer.character.attributes,
+              stats: statsPlayer.character.stats,
+              resistances: statsPlayer.character.resistances || {
+                physical: 0,
+                fire: 0,
+                ice: 0,
+                lightning: 0,
+                poison: 0,
+                dark: 0,
+                light: 0
+              }
+            };
+          } catch (error) {
+            console.error('Error getting player stats:', error);
+            result = { success: false, message: 'Error retrieving player stats' };
+          }
+          break;
+          
+        case 'getInventory':
+          // Get player inventory
+          try {
+            // Check if we have inventoryService imported
+            if (typeof inventoryService !== 'undefined' && inventoryService.getPlayerInventory) {
+              const inventoryResult = await inventoryService.getPlayerInventory(playerId);
+              if (inventoryResult.success) {
+                result = {
+                  success: true,
+                  type: 'getInventory',
+                  message: 'Inventory retrieved',
+                  inventory: inventoryResult.inventory,
+                  equipment: inventoryResult.equipment,
+                  gold: inventoryResult.gold
+                };
+              } else {
+                result = inventoryResult;
+              }
+            } else {
+              // Fallback to basic inventory retrieval
+              const invPlayer = await Player.findById(playerId);
+              if (!invPlayer) {
+                result = { success: false, message: 'Player not found' };
+                break;
+              }
+              
+              result = {
+                success: true,
+                type: 'getInventory',
+                message: 'Inventory retrieved',
+                inventory: invPlayer.character.inventory || [],
+                equipment: invPlayer.character.equipment || {},
+                gold: invPlayer.character.gold || { carried: 0, bank: 0 }
+              };
+            }
+          } catch (error) {
+            console.error('Error getting inventory:', error);
+            result = { success: false, message: 'Error retrieving inventory' };
+          }
+          break;
+          
         case 'getZoneInfo':
           // Get the player's current zone
           const player = await Player.findById(playerId);
@@ -158,21 +348,30 @@ io.on('connection', (socket) => {
             id: 'wolf-1',
             name: 'Forest Wolf',
             type: 'monster',
-            description: 'A hungry wolf prowling for prey'
+            level: 2,
+            description: 'A hungry wolf prowling for prey',
+            health: 50,
+            maxHealth: 50
           });
           
           zoneEntities.push({
             id: 'goblin-1',
             name: 'Goblin Scout',
             type: 'monster',
-            description: 'A small goblin with a crude dagger'
+            level: 3,
+            description: 'A small goblin with a crude dagger',
+            health: 40,
+            maxHealth: 40
           });
           
           zoneEntities.push({
             id: 'spider-1',
             name: 'Giant Spider',
             type: 'monster',
-            description: 'A hairy spider the size of a dog'
+            level: 2,
+            description: 'A hairy spider the size of a dog',
+            health: 30,
+            maxHealth: 30
           });
           
           // Check if there are any monsters in the database for this zone
@@ -198,17 +397,54 @@ io.on('connection', (socket) => {
           // Ensure connections array exists and is valid
           const connections = zone.connections || [];
           
-          result = {
-            success: true,
-            message: `You are in ${zone.displayName}`,
-            zone: {
-              name: zone.name,
-              displayName: zone.displayName,
-              description: zone.description,
-              connections: connections,
-              entities: zoneEntities
+          // Check if player is on a map
+          if (player.character.currentMap) {
+            result = { 
+              success: false, 
+              message: 'Player is on a map, not a zone. Use getMapView instead.',
+              isOnMap: true,
+              mapName: player.character.currentMap
+            };
+          } else {
+            // Add map connections
+            try {
+              const availableMaps = await Map.find({}, 'name displayName regionType');
+              const mapConnections = availableMaps.map(map => ({
+                zoneName: null,
+                mapName: map.name,
+                description: `Enter ${map.displayName}`,
+                direction: 'portal'
+              }));
+              
+              result = {
+                success: true,
+                message: `You are in ${zone.displayName}`,
+                zone: {
+                  name: zone.name,
+                  displayName: zone.displayName,
+                  description: zone.description,
+                  connections: connections,
+                  mapConnections: mapConnections,
+                  entities: zoneEntities
+                }
+              };
+            } catch (error) {
+              console.error('Error adding map connections:', error);
+              
+              // Fall back to just zone info
+              result = {
+                success: true,
+                message: `You are in ${zone.displayName}`,
+                zone: {
+                  name: zone.name,
+                  displayName: zone.displayName,
+                  description: zone.description,
+                  connections: connections,
+                  entities: zoneEntities
+                }
+              };
             }
-          };
+          }
           break;
           
         case 'move':
@@ -283,11 +519,17 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     
-    // Remove from active players
-    if (activePlayers.has(socket.id)) {
-      const { playerId } = activePlayers.get(socket.id);
-      console.log(`Player ${playerId} disconnected`);
-      activePlayers.delete(socket.id);
+    // Remove from active players with error handling
+    try {
+      if (activePlayers && typeof activePlayers.has === 'function' && activePlayers.has(socket.id)) {
+        const playerData = activePlayers.get(socket.id);
+        if (playerData && playerData.playerId) {
+          console.log(`Player ${playerData.playerId} disconnected`);
+        }
+        activePlayers.delete(socket.id);
+      }
+    } catch (error) {
+      console.error('Error handling disconnect:', error);
     }
   });
 });
@@ -433,18 +675,31 @@ const handleAttack = async (playerId, monsterId) => {
       // Add rewards
       const experienceGained = 20;
       result.experienceGained = experienceGained;
-      result.loot = [{name: 'Wolf Pelt', quantity: 1}];
       
-      // Update player
-      player.character.experience += experienceGained;
+      // Generate loot from monster
+      const loot = await lootService.generateMonsterLoot(monsterId);
       
-      // Check if player leveled up (simplified)
-      if (player.character.experience >= 100) {
-        player.character.level += 1;
-        player.character.experience = 0;
-        result.levelUp = true;
-        result.newLevel = player.character.level;
+      // Add gold based on monster level
+      const goldGained = lootService.generateGoldLoot(5, 15);
+      result.goldGained = goldGained;
+      
+      // Add loot and gold to player
+      const lootResult = await lootService.addLootToPlayer(playerId, loot, goldGained);
+      result.loot = lootResult.addedItems;
+      
+      // Use player's own experience method
+      const expResult = player.addExperience(experienceGained);
+      result.levelUp = expResult.leveledUp;
+      result.newLevel = expResult.leveledUp ? expResult.newLevel : null;
+      
+      // Track monster kill in player stats
+      player.addMonsterKill(monsterId, monsterName);
+      
+      // Update player stats
+      if (!player.character.stats) {
+        player.character.stats = {};
       }
+      player.character.stats.totalDamageDealt = (player.character.stats.totalDamageDealt || 0) + playerDamage;
       
       await player.save();
     } else {
@@ -470,6 +725,13 @@ const handleAttack = async (playerId, monsterId) => {
       // Apply damage to player
       player.character.health.current = Math.max(0, player.character.health.current - monsterDamage);
       
+      // Track damage taken in player stats
+      if (!player.character.stats) {
+        player.character.stats = {};
+      }
+      player.character.stats.totalDamageTaken = (player.character.stats.totalDamageTaken || 0) + monsterDamage;
+      player.character.stats.totalDamageDealt = (player.character.stats.totalDamageDealt || 0) + playerDamage;
+      
       result.monsterDamage = monsterDamage;
       result.monsterCritical = monsterCritical;
       result.playerHealth = player.character.health.current;
@@ -484,6 +746,9 @@ const handleAttack = async (playerId, monsterId) => {
       if (player.character.health.current <= 0) {
         result.playerDied = true;
         result.message += ' You have been defeated!';
+        
+        // Track death in player stats
+        player.character.stats.totalDeaths = (player.character.stats.totalDeaths || 0) + 1;
         
         // Revive player with half health
         player.character.health.current = Math.floor(player.character.health.max * 0.5);
