@@ -815,7 +815,22 @@ export default {
       });
       
       socket.value.on('chat:message', (message) => {
+        // Check if this is a message from the current player that was already added locally
+        if (message.playerId === 'self' || 
+            (message.playerId === socket.value.id && 
+             message.timestamp && 
+             chatMessages.value.some(m => 
+               m.playerId === 'self' && 
+               m.content === message.content && 
+               Math.abs(m.timestamp - message.timestamp) < 1000))) {
+          // Skip adding duplicate message, just scroll
+          scrollChatToBottom();
+          return;
+        }
+        
+        // Add message from server
         chatMessages.value.push(message);
+        
         // Scroll chat to bottom
         scrollChatToBottom();
       });
@@ -851,7 +866,7 @@ export default {
     // Scroll chat to bottom
     const scrollChatToBottom = () => {
       setTimeout(() => {
-        const chatDiv = document.querySelector('.chat-messages');
+        const chatDiv = document.querySelector('.chronicle-messages');
         if (chatDiv) {
           chatDiv.scrollTop = chatDiv.scrollHeight;
         }
